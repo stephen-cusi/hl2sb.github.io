@@ -1,0 +1,4 @@
+# 构建产物 / build output —— 需要时由 `python tools/build.py` 重新生成。
+dist/
+__pycache__/
+*.pyc

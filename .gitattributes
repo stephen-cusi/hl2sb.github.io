@@ -1,0 +1,5 @@
+# 统一用 LF：Windows 上也不会把整个文件改行尾（尤其是从上游仓库复制来的文档）。
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

@@ -1,0 +1,52 @@
+name: Build & deploy docs to GitHub Pages
+
+# 说明 / notes:
+#  * 站点是预渲染的静态 HTML：CI 只是重跑 tools/build.py，不引入任何运行时依赖。
+#  * 所有链接都是相对路径，所以仓库改名/转移到组织后地址自动正确。
+#  * 需要仓库 Settings → Pages → Source 设为 "GitHub Actions"。
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build site (docs/ -> dist/)
+        run: python tools/build.py --out dist
+
+      - name: Verify site (links, rendering, no external deps)
+        run: python tools/verify.py --no-http
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
