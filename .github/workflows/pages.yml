@@ -3,7 +3,7 @@ name: Build & deploy docs to GitHub Pages
 # 说明 / notes:
 #  * 站点是预渲染的静态 HTML：CI 只是重跑 tools/build.py，不引入任何运行时依赖。
 #  * 所有链接都是相对路径，所以仓库改名/转移到组织后地址自动正确。
-#  * 需要仓库 Settings → Pages → Source 设为 "GitHub Actions"。
+#  * 需要仓库 Settings → Pages → Source 设为 "GitHub Actions"（已通过 API 设置）。
 
 on:
   push:
@@ -23,9 +23,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -37,7 +37,7 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
 
