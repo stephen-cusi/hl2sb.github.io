@@ -35,6 +35,10 @@ jobs:
       - name: Verify site (links, rendering, no external deps)
         run: python tools/verify.py --no-http
 
+      # 双保险：即使以后把 Pages 源改成「分支」，也不会被 Jekyll 处理
+      - name: Add .nojekyll
+        run: touch dist/.nojekyll
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v4
