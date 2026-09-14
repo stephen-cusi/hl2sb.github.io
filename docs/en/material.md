@@ -72,16 +72,31 @@ when `materials->CreateMaterial()` fails or returns an error material it gives `
 
 ## 3. Examples {#3-示例}
 
-**Example 1: fetch an existing material and draw it (client)**
+**Example 1: fetch an image material and draw it (client)**
 
 ```lua
-local mat = Material( "vgui/wave.png" )     -- no .vmt is fine: the engine synthesises an UnlitGeneric
+-- materials/gwenskin/gmoddefault.png is 512x512; having no matching .vmt is fine:
+-- the engine synthesises an UnlitGeneric material for it (cmaterialsystem.cpp:2831-2849)
+local mat = Material( "gwenskin/gmoddefault.png" )
 
-if ( mat and !mat:IsError() ) then
+print( mat:IsError() )      -- synthesis succeeded, so it is not an error material
+print( mat:GetName() )      -- image materials keep the name you gave
+print( mat:Width() )        -- width of the texture behind $basetexture
+print( mat:Height() )       -- height
+
+if ( !mat:IsError() ) then
 	surface.SetMaterial( mat )
 	surface.SetDrawColor( 255, 255, 255, 255 )
 	surface.DrawTexturedRect( 50, 50, 128, 128 )
 end
+```
+
+**Output:**
+```text
+false
+gwenskin/gmoddefault.png
+512
+512
 ```
 
 **Example 2: CreateMaterial — note the signature and "store the return value"**
@@ -91,18 +106,23 @@ end
 --     CreateMaterial( "colortexshp", "VertexLitGeneric", { ["$basetexture"] = "color/white" } )
 -- HL2SB puts the shader into the 2nd table:
 local mat = CreateMaterial( "hl2sb_colortex", {
-	shader         = "VertexLitGeneric",
-	["$basetexture"] = "color/white",
-	["$model"]       = 1,
+	shader           = "VertexLitGeneric",
+	["$basetexture"] = "gwenskin/gmoddefault.png",
 	["$translucent"] = 1,
-	["$vertexalpha"] = 1,
-	["$vertexcolor"] = 1,
 } )
 
--- ⚠️ You can only rely on this return value: Material( "hl2sb_colortex" ) cannot find it (for the reason see §4)
-if ( mat ) then
-	surface.SetMaterial( mat )
-end
+print( mat ~= nil )                              -- it was created
+print( mat:GetName() )                           -- the name you passed
+print( mat:GetShaderName() )                     -- whatever the shader key selected
+print( Material( "hl2sb_colortex" ):IsError() )  -- ⚠️ true: Material() cannot find it (see §4)
+```
+
+**Output:**
+```text
+true
+hl2sb_colortex
+VertexLitGeneric
+true
 ```
 
 **Example 3: the server-side `Material()` (the return value can only be handed to another API)**
@@ -111,9 +131,17 @@ end
 -- Calling it at file scope is safe (this is the reason that server-side implementation exists)
 local icon = Material( "nyan/cat.png" )
 
-print( icon:GetName() )    -- "nyan/cat.png"
+print( icon:GetName() )    -- the server just stores that string
 print( icon:IsError() )    -- false (the server does no query, so it is never an error)
+print( icon:Width() )      -- 0 (the server never touches the material system)
 -- To actually use this material, fetch it once more on the client
+```
+
+**Output:**
+```text
+nyan/cat.png
+false
+0
 ```
 
 ## 4. Differences from GMod / gotchas {#4-与-gmod-的差异-注意}

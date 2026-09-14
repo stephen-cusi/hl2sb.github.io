@@ -86,20 +86,26 @@ files, dirs = file.Find( "no/such/folder/*", "GAME" )   -- files == {}, dirs == 
 
 ## 3. 示例
 
+下面每段的**输出**都是按本仓库游戏内容（`D:\srceng\hl2sb`）的实际文件算出来的；
+换成你自己的内容，数字和名字当然会不同。
+
 **例 1：列出一个文件夹（默认 `nameasc`）**
 
 ```lua
-local files, dirs = file.Find( "settings/spawnlist/*.txt", "GAME" )
+local files, dirs = file.Find( "weapons/*", "LUA" )
 
-if ( !files ) then return end        -- 只有 pathID 非法才会是 nil
+print( #files )          -- 这一层没有文件
+print( #dirs )           -- 只有子目录
+print( dirs[ 1 ] )       -- nameasc：第一个
+print( dirs[ #dirs ] )   -- 最后一个
+```
 
-for _, name in ipairs( files ) do
-	print( "FILE", name )            -- 裸文件名，如 "hl2_weapons.txt"
-end
-
-for _, name in ipairs( dirs ) do
-	print( "DIR ", name )            -- 目录名没有尾斜杠；拼路径时自己加 "/"
-end
+**输出：**
+```text
+0
+6
+gmod_camera
+weapon_medkit
 ```
 
 **例 2：递归展开一个目录树（GMod 的惯用写法）**
@@ -120,27 +126,52 @@ end
 ListRecursive( "lua/entities", "GAME" )
 ```
 
+**输出：**（先列当前目录的文件，再按名字升序进子目录 —— 共 8 个文件）
+```text
+lua/entities/sent_ball.lua
+lua/entities/prop_example/cl_init.lua
+lua/entities/prop_example/init.lua
+lua/entities/prop_example/shared.lua
+lua/entities/prop_scripted/cl_init.lua
+lua/entities/prop_scripted/init.lua
+lua/entities/prop_scripted/shared.lua
+lua/entities/trigger_scripted/init.lua
+```
+
 **例 3：`LUA` 是 `lua/` 子树，`DATA` 是 `data/` 子树**
 
 ```lua
 -- "LUA"/"lcl"/"lsv"/"LuaMenu" 都映射到 GAME + "lua/" 前缀
-local weapons = file.Find( "weapons/*.lua", "LUA", "namedesc" )
+local weapons = file.Find( "weapons/*.lua", "LUA" )
 
 -- "DATA" 映射到 MOD + "data/" 前缀（就是 GMod 的 garrysmod/data）
 file.Write( "hl2sb_demo/notes.txt", "hello" )
 local dataFiles = file.Find( "hl2sb_demo/*", "DATA" )
 
-print( weapons[ 1 ], dataFiles[ 1 ] )   -- 例如 "weapon_hl2mpbase.lua"  "notes.txt"
+print( #weapons )        -- lua/weapons 根目录下没有 .lua（都在子目录里）
+print( dataFiles[ 1 ] )  -- 刚写进去的文件（写侧会把 data/ 下的名字转小写）
+```
+
+**输出：**
+```text
+0
+notes.txt
 ```
 
 **例 4：排序参数真的生效**
 
 ```lua
-local asc  = file.Find( "addons/*", "MOD", "nameasc" )
-local desc = file.Find( "addons/*", "MOD", "namedesc" )
-local big  = file.Find( "addons/*", "MOD", "sizedesc" )
+local _, asc  = file.Find( "addons/*", "MOD", "nameasc" )
+local _, desc = file.Find( "addons/*", "MOD", "namedesc" )
 
-print( asc[ 1 ], desc[ 1 ], big[ 1 ] )
+print( asc[ 1 ] )
+print( desc[ 1 ] )
+```
+
+**输出：**（本仓库 `hl2sb/addons/` 里的 5 个目录，排序不区分大小写）
+```text
+example_addon
+The Ultimate Admin Gun Fixed
 ```
 
 > 想就地核对上面每一条，可以用游戏内容仓库里的探针 `lua/file_find_test.lua`

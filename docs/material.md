@@ -72,16 +72,31 @@ IMaterial CreateMaterial( string name, table params )
 
 ## 3. 示例
 
-**例 1：取一个已有材质并画出来（客户端）**
+**例 1：取一个图片材质并画出来（客户端）**
 
 ```lua
-local mat = Material( "vgui/wave.png" )     -- 没有 .vmt 也没关系：引擎会合成 UnlitGeneric
+-- materials/gwenskin/gmoddefault.png 是 512x512；没有对应的 .vmt 也没关系：
+-- 引擎会为它合成一个 UnlitGeneric 材质（cmaterialsystem.cpp:2831-2849）
+local mat = Material( "gwenskin/gmoddefault.png" )
 
-if ( mat and !mat:IsError() ) then
+print( mat:IsError() )      -- 合成成功，不是 error 材质
+print( mat:GetName() )      -- 图片材质保留你给的名字
+print( mat:Width() )        -- $basetexture 那张贴图的宽
+print( mat:Height() )       -- 高
+
+if ( !mat:IsError() ) then
 	surface.SetMaterial( mat )
 	surface.SetDrawColor( 255, 255, 255, 255 )
 	surface.DrawTexturedRect( 50, 50, 128, 128 )
 end
+```
+
+**输出：**
+```text
+false
+gwenskin/gmoddefault.png
+512
+512
 ```
 
 **例 2：CreateMaterial —— 注意签名和「把返回值存起来」**
@@ -91,18 +106,23 @@ end
 --     CreateMaterial( "colortexshp", "VertexLitGeneric", { ["$basetexture"] = "color/white" } )
 -- HL2SB 把 shader 放进第 2 个表里：
 local mat = CreateMaterial( "hl2sb_colortex", {
-	shader         = "VertexLitGeneric",
-	["$basetexture"] = "color/white",
-	["$model"]       = 1,
+	shader           = "VertexLitGeneric",
+	["$basetexture"] = "gwenskin/gmoddefault.png",
 	["$translucent"] = 1,
-	["$vertexalpha"] = 1,
-	["$vertexcolor"] = 1,
 } )
 
--- ⚠️ 只能靠这个返回值：Material( "hl2sb_colortex" ) 找不到它（原因见 §4）
-if ( mat ) then
-	surface.SetMaterial( mat )
-end
+print( mat ~= nil )                              -- 建出来了
+print( mat:GetName() )                           -- 名字就是你给的
+print( mat:GetShaderName() )                     -- 表里 shader 键选的那个
+print( Material( "hl2sb_colortex" ):IsError() )  -- ⚠️ true：Material() 找不到它（见 §4）
+```
+
+**输出：**
+```text
+true
+hl2sb_colortex
+VertexLitGeneric
+true
 ```
 
 **例 3：服务端的 `Material()`（返回值只能转交给别的 API）**
@@ -111,9 +131,17 @@ end
 -- 文件作用域调用是安全的（这就是服务端那份实现存在的理由）
 local icon = Material( "nyan/cat.png" )
 
-print( icon:GetName() )    -- "nyan/cat.png"
+print( icon:GetName() )    -- 服务端只是把这个字符串存起来
 print( icon:IsError() )    -- false（服务端不做查询，所以永远不是 error）
+print( icon:Width() )      -- 0（服务端不碰材质系统）
 -- 想真正用这个材质，要在客户端再取一次
+```
+
+**输出：**
+```text
+nyan/cat.png
+false
+0
 ```
 
 ## 4. 与 GMod 的差异 / 注意

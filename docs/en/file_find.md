@@ -95,20 +95,26 @@ does not guard against an empty folder (the source calls this out specifically a
 
 ## 3. Examples {#3-示例}
 
+The **Output** of every snippet below is computed from the actual files in this repo's game content
+(`D:\srceng\hl2sb`); with your own content the numbers and names will of course differ.
+
 **Example 1: list one folder (default `nameasc`)**
 
 ```lua
-local files, dirs = file.Find( "settings/spawnlist/*.txt", "GAME" )
+local files, dirs = file.Find( "weapons/*", "LUA" )
 
-if ( !files ) then return end        -- only an invalid pathID makes this nil
+print( #files )          -- no files at this level
+print( #dirs )           -- subdirectories only
+print( dirs[ 1 ] )       -- nameasc: the first one
+print( dirs[ #dirs ] )   -- and the last one
+```
 
-for _, name in ipairs( files ) do
-	print( "FILE", name )            -- bare file name, e.g. "hl2_weapons.txt"
-end
-
-for _, name in ipairs( dirs ) do
-	print( "DIR ", name )            -- directory names have no trailing slash; add "/" yourself when building a path
-end
+**Output:**
+```text
+0
+6
+gmod_camera
+weapon_medkit
 ```
 
 **Example 2: recursively expand a directory tree (the idiomatic GMod way)**
@@ -129,27 +135,52 @@ end
 ListRecursive( "lua/entities", "GAME" )
 ```
 
+**Output:** (files of the current folder first, then subdirectories by name — 8 files in total)
+```text
+lua/entities/sent_ball.lua
+lua/entities/prop_example/cl_init.lua
+lua/entities/prop_example/init.lua
+lua/entities/prop_example/shared.lua
+lua/entities/prop_scripted/cl_init.lua
+lua/entities/prop_scripted/init.lua
+lua/entities/prop_scripted/shared.lua
+lua/entities/trigger_scripted/init.lua
+```
+
 **Example 3: `LUA` is the `lua/` subtree, `DATA` is the `data/` subtree**
 
 ```lua
 -- "LUA"/"lcl"/"lsv"/"LuaMenu" all map to GAME + the "lua/" prefix
-local weapons = file.Find( "weapons/*.lua", "LUA", "namedesc" )
+local weapons = file.Find( "weapons/*.lua", "LUA" )
 
 -- "DATA" maps to MOD + the "data/" prefix (i.e. GMod's garrysmod/data)
 file.Write( "hl2sb_demo/notes.txt", "hello" )
 local dataFiles = file.Find( "hl2sb_demo/*", "DATA" )
 
-print( weapons[ 1 ], dataFiles[ 1 ] )   -- for example "weapon_hl2mpbase.lua"  "notes.txt"
+print( #weapons )        -- no .lua directly under lua/weapons (they all live in subfolders)
+print( dataFiles[ 1 ] )  -- the file just written (the write side lowercases names under data/)
+```
+
+**Output:**
+```text
+0
+notes.txt
 ```
 
 **Example 4: the sorting argument really takes effect**
 
 ```lua
-local asc  = file.Find( "addons/*", "MOD", "nameasc" )
-local desc = file.Find( "addons/*", "MOD", "namedesc" )
-local big  = file.Find( "addons/*", "MOD", "sizedesc" )
+local _, asc  = file.Find( "addons/*", "MOD", "nameasc" )
+local _, desc = file.Find( "addons/*", "MOD", "namedesc" )
 
-print( asc[ 1 ], desc[ 1 ], big[ 1 ] )
+print( asc[ 1 ] )
+print( desc[ 1 ] )
+```
+
+**Output:** (the 5 folders in this repo's `hl2sb/addons/`, sorted case-insensitively)
+```text
+example_addon
+The Ultimate Admin Gun Fixed
 ```
 
 > To check each of the above in place, you can use the probe `lua/file_find_test.lua` from the game

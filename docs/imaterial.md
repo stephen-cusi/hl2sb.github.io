@@ -33,6 +33,32 @@ GMod 的 Lua 里它是个用户数据：可以问名字、问着色器、拿 `$b
 （`lbaseanimating_shared.cpp:287`）—— 那条路**只在客户端实测过**，
 服务端（没有 studio render）能不能用**没有验证**，别在服务端依赖它。
 
+**例：拿到一个 IMaterial 并问它几个问题**（客户端）
+
+```lua
+local mat = Material( "gwenskin/gmoddefault.png" )
+
+print( mat:GetName() )              -- 图片材质保留你给的名字
+print( mat:GetShaderName() )        -- 引擎为图片合成的着色器
+print( mat:GetTextureGroupName() )  -- Material() 用的是 TEXTURE_GROUP_VGUI
+print( mat:Width() )                -- $basetexture 的宽
+print( mat:Height() )               -- 高
+print( mat:IsError() )              -- 合成成功就不是 error 材质
+
+mat:SetShader( "UnlitGeneric" )     -- 写操作只有少数几个
+mat:RecomputeStateSnapshots()       -- GMod 的 Recompute() 对应这个名字
+```
+
+**输出：**
+```text
+gwenskin/gmoddefault.png
+UnlitGeneric
+VGUI textures
+512
+512
+false
+```
+
 ## 2. GMod 的 IMaterial 方法对照
 
 上游 [IMaterial](https://wiki.facepunch.com/gmod/IMaterial) 文档化了 24 个方法，

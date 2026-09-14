@@ -105,30 +105,63 @@ GMod 的 `CSoundPatch` 方法（[上游列表](https://wiki.facepunch.com/gmod/C
 ```lua
 -- 客户端持有通道；音量从 0 拉到 1 是斜坡，不是硬切
 local channel = CreateSound( LocalPlayer(), "weapons/nyan/nyan_loop.wav" )
+
+print( channel ~= nil )       -- 实体和名字都合法就有对象
+print( channel:IsValid() )    -- 拥有者实体还在
+print( channel:IsPlaying() )  -- 还没 Play
+print( channel:Is3D() )       -- 占位实现，恒 false
+
 if ( channel ) then
 	channel:SetVolume( 0 )
 	channel:Play()
+	print( channel:IsPlaying() )   -- Play 之后
+	print( channel:GetVolume() )   -- 记住的音量（刚设成 0）
 
-	-- 开火：0.2 秒内淡入
-	channel:ChangeVolume( 1, 0.2 )
+	channel:ChangeVolume( 1, 0.2 ) -- 0.2 秒的斜坡
+	print( channel:GetVolume() )
 
-	-- 松开：0.4 秒内淡出，然后真正停掉（FadeOut 不会销毁 patch）
-	channel:FadeOut( 0.4 )
-	timer.Simple( 0.4, function()
-		if ( channel:IsValid() ) then channel:Stop() end
-	end )
+	channel:FadeOut( 0.4 )         -- 降到 0，但**不销毁** patch
+	print( channel:GetVolume() )
+	print( channel:IsPlaying() )   -- ⚠️ 仍然是 true，所以下面要自己 Stop
+
+	channel:Stop()                 -- 真正停掉（销毁 patch）
+	print( channel:IsPlaying() )
 end
+```
+
+**输出：**
+```text
+true
+true
+false
+false
+true
+0
+1
+0
+true
+false
 ```
 
 **例 2：一次性音效（播完即止）**
 
 ```lua
 local channel = CreateSound( ent, "phx/hmetal1.wav" )
-if ( channel ) then
-	channel:Play()
-	-- 播完判断：既没播也没暂停，而且实体还在
-	if ( channel:IsFinished() ) then channel:Stop() end
-end
+
+print( channel ~= nil )        -- 建出来了
+print( channel:IsFinished() )  -- ⚠️ true：还没 Play 就已经算「finished」
+channel:Play()
+print( channel:IsPlaying() )   -- true
+channel:Stop()
+print( channel:IsPlaying() )   -- false
+```
+
+**输出：**
+```text
+true
+true
+true
+false
 ```
 
 **例 3：服务端创建、靠实体位置发声**
@@ -136,10 +169,16 @@ end
 ```lua
 -- 服务端：波表要先 precache，绑定会替你补一次（lutil_shared.cpp:781-787）
 local channel = CreateSound( self, "ambient/machines/machine_loop1.wav" )
+
+print( channel ~= nil )    -- 服务端也能建（client.dll 与 server.dll 都编了这份绑定）
 if ( channel ) then
 	channel:Play()
 end
--- 实体没了（武器被丢/玩家离开）时不要再碰 channel：绑定会拒绝，引擎不回收那块内存
+```
+
+**输出：**
+```text
+true
 ```
 
 ## 5. 与 GMod 的差异 / 注意

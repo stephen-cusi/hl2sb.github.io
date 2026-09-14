@@ -34,6 +34,32 @@ behind `$basetexture`, sample a color by coordinates, and change material variab
 (`lbaseanimating_shared.cpp:287`) — that path has **only been tested on the client**, and whether the
 server (which has no studio render) can use it is **unverified**, so do not depend on it on the server.
 
+**Example: obtain an IMaterial and ask it a few questions** (client)
+
+```lua
+local mat = Material( "gwenskin/gmoddefault.png" )
+
+print( mat:GetName() )              -- image materials keep the name you gave
+print( mat:GetShaderName() )        -- the shader the engine synthesised for the image
+print( mat:GetTextureGroupName() )  -- Material() uses TEXTURE_GROUP_VGUI
+print( mat:Width() )                -- width of $basetexture
+print( mat:Height() )               -- height
+print( mat:IsError() )              -- not an error material when synthesis succeeded
+
+mat:SetShader( "UnlitGeneric" )     -- only a handful of write operations exist
+mat:RecomputeStateSnapshots()       -- what GMod calls Recompute()
+```
+
+**Output:**
+```text
+gwenskin/gmoddefault.png
+UnlitGeneric
+VGUI textures
+512
+512
+false
+```
+
 ## 2. Mapping GMod's IMaterial methods {#2-gmod-的-imaterial-方法对照}
 
 Upstream [IMaterial](https://wiki.facepunch.com/gmod/IMaterial) documents 24 methods; here is how

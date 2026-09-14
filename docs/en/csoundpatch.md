@@ -105,30 +105,63 @@ them, but the return value of `sound.PlayFile` does, and addons mix the two):
 ```lua
 -- The client holds the channel; ramping the volume from 0 to 1 is a ramp, not a hard cut
 local channel = CreateSound( LocalPlayer(), "weapons/nyan/nyan_loop.wav" )
+
+print( channel ~= nil )       -- a valid entity and name give you an object
+print( channel:IsValid() )    -- the owner entity is still there
+print( channel:IsPlaying() )  -- not played yet
+print( channel:Is3D() )       -- placeholder implementation, always false
+
 if ( channel ) then
 	channel:SetVolume( 0 )
 	channel:Play()
+	print( channel:IsPlaying() )   -- after Play
+	print( channel:GetVolume() )   -- the remembered volume (just set to 0)
 
-	-- Fire: fade in over 0.2 seconds
-	channel:ChangeVolume( 1, 0.2 )
+	channel:ChangeVolume( 1, 0.2 ) -- a 0.2 second ramp
+	print( channel:GetVolume() )
 
-	-- Release: fade out over 0.4 seconds, then really stop it (FadeOut does not destroy the patch)
-	channel:FadeOut( 0.4 )
-	timer.Simple( 0.4, function()
-		if ( channel:IsValid() ) then channel:Stop() end
-	end )
+	channel:FadeOut( 0.4 )         -- ramps to 0 but does **not** destroy the patch
+	print( channel:GetVolume() )
+	print( channel:IsPlaying() )   -- ⚠️ still true, which is why Stop() is needed below
+
+	channel:Stop()                 -- really stop it (destroys the patch)
+	print( channel:IsPlaying() )
 end
+```
+
+**Output:**
+```text
+true
+true
+false
+false
+true
+0
+1
+0
+true
+false
 ```
 
 **Example 2: one-shot sound effect (stops once it has finished playing)**
 
 ```lua
 local channel = CreateSound( ent, "phx/hmetal1.wav" )
-if ( channel ) then
-	channel:Play()
-	-- Finished check: neither playing nor paused, and the entity still exists
-	if ( channel:IsFinished() ) then channel:Stop() end
-end
+
+print( channel ~= nil )        -- it was created
+print( channel:IsFinished() )  -- ⚠️ true: it already counts as "finished" before Play
+channel:Play()
+print( channel:IsPlaying() )   -- true
+channel:Stop()
+print( channel:IsPlaying() )   -- false
+```
+
+**Output:**
+```text
+true
+true
+true
+false
 ```
 
 **Example 3: created on the server, sounding from the entity's position**
@@ -136,10 +169,16 @@ end
 ```lua
 -- Server side: the wave has to be precached first; the binding does one for you (lutil_shared.cpp:781-787)
 local channel = CreateSound( self, "ambient/machines/machine_loop1.wav" )
+
+print( channel ~= nil )    -- the server can create one too (client.dll and server.dll both build this binding)
 if ( channel ) then
 	channel:Play()
 end
--- Once the entity is gone (weapon dropped / player left), do not touch channel again: the binding will refuse, and the engine does not reclaim that memory
+```
+
+**Output:**
+```text
+true
 ```
 
 ## 5. Differences from GMod / cautions {#5-与-gmod-的差异-注意}
