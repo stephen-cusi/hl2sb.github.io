@@ -846,8 +846,10 @@ def build(out_dir: str) -> int:
         json.dump(search_index, fh, ensure_ascii=False, indent=1)
 
     # .nojekyll：确保 GitHub Pages 不做 Jekyll 处理
-    with open(os.path.join(out_dir, ".nojekyll"), "w", encoding="utf-8") as fh:
-        fh.write("")
+    # （根目录与 docs/ 各放一份；Actions 部署时不需要，但保留着没有坏处）
+    for name in (".nojekyll", "docs/.nojekyll"):
+        with open(os.path.join(out_dir, *name.split("/")), "w", encoding="utf-8") as fh:
+            fh.write("")
 
     # 404：Pages 上未知路径回首页
     with open(os.path.join(out_dir, "404.html"), "w", encoding="utf-8", newline="\n") as fh:
