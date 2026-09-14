@@ -11,6 +11,9 @@
       https://<user>.github.io/hl2sb.github.io/
       https://hl2sb.github.io/
   两种部署方式都能用。
+* **截图约定** —— `docs/*.md` 里写 `![说明](../assets/img/...)`：这条相对路径
+  相对生成的 `docs/*.html`（也相对 `docs/` 在 GitHub 上的位置，所以网页和
+  GitHub 上都能直接显示），`assets/` 整棵树会被原样复制到 `dist/assets/`。
 
 用法 / usage:
     python tools/build.py            # -> dist/
@@ -776,10 +779,16 @@ def build(out_dir: str) -> int:
     os.makedirs(os.path.join(out_dir, "assets"), exist_ok=True)
     os.makedirs(os.path.join(out_dir, "docs"), exist_ok=True)
 
-    # 静态资源
-    for name in ("style.css", "app.js", "favicon.svg"):
-        shutil.copy2(os.path.join(ASSETS_DIR, name),
-                     os.path.join(out_dir, "assets", name))
+    # 静态资源：assets/ 下的手写文件整体复制（style.css / app.js / favicon.svg，
+    # 以及 docs/*.md 里用 `../assets/img/...` 引用的截图）。
+    for base, _dirs, files in os.walk(ASSETS_DIR):
+        rel = os.path.relpath(base, ASSETS_DIR)
+        out_dir_assets = (os.path.join(out_dir, "assets") if rel == "."
+                          else os.path.join(out_dir, "assets", rel))
+        os.makedirs(out_dir_assets, exist_ok=True)
+        for name in sorted(files):
+            shutil.copy2(os.path.join(base, name),
+                         os.path.join(out_dir_assets, name))
 
     search_index = []
     pages_written = []

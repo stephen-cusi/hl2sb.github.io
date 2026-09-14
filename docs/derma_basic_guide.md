@@ -192,6 +192,14 @@ btn:SetPos( 100, 100 ) btn:SetSize( 150, 30 )
 btn.DoClick = function() print( "clicked" ) end
 ```
 
+![HL2SB 实测：只建好窗口、正文区还是空的 Test panel](../assets/img/derma/test-panel-empty.png)
+
+*图 1：上面代码只跑到 `f:MakePopup()` 为止时的样子 —— 蓝色标题栏、`—` `□` `✕` 三个 Marlett 字形按钮，正文区是空的（字面意思的「先有窗，后有内容」）。*
+
+![HL2SB 实测：加上 label、面板、按钮后的完整 Test panel](../assets/img/derma/test-panel-example.png)
+
+*图 2：把 body / label / 按钮也加进去之后（完整的最小示例）—— 绿色标签、橙色面板，以及下方的 "Click me I'm pretty!" 按钮；游戏内第一人称实拍。*
+
 面板生命周期（与 GMod 同名，本仓库都分发）：
 
 | 钩子 | 何时 | 典型用途 |

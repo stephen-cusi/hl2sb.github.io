@@ -4,7 +4,8 @@
 
 GitHub Pages 的用户站会挂在 /<repo>/ 这样的子路径下，所以这里起一个
 「把 dist/ 当作 /hl2sb.github.io/ 子目录」的本地服务器，按真实 URL 抓页面，
-检查 HTTP 200、内容、侧栏/搜索面板结构，以及首页出去的相对链接。
+检查 HTTP 200、内容、侧栏/搜索面板结构、首页出去的相对链接，以及文档里的
+截图（`../assets/img/*.png` 必须在子路径下 200 且真的是 PNG）。
 
 用法:
     python tools/preview_check.py
@@ -54,7 +55,9 @@ CHECKS = [
     ("/docs/index.html", "Wiki 目录", ["derma_basic_guide.html", "gmod_lua_port_plan.html"]),
     ("/docs/derma_basic_guide.html", "Derma 基础指南",
      ["<table", "<pre><code", "DFrame:GetClientArea",
-      "id=\"0-运行环境和-gmod-不一样的第一件事\"", "class=\"codeblock\""]),
+      "id=\"0-运行环境和-gmod-不一样的第一件事\"", "class=\"codeblock\"",
+      "src=\"../assets/img/derma/test-panel-empty.png\"",
+      "src=\"../assets/img/derma/test-panel-example.png\""]),
     ("/docs/gmod_lua_port_plan.html", "移植计划与状态", ["<table", "class=\"codeblock\""]),
     ("/docs/gmod_compat_layer.html", "兼容层", ["<table", "lua/includes/extensions"]),
     ("/docs/build_and_run.html", "构建与运行",
@@ -76,6 +79,14 @@ failures: list[str] = []
 def get(url: str) -> tuple[int, str]:
     with urllib.request.urlopen(url, timeout=15) as resp:
         return resp.status, resp.read().decode("utf-8", "replace")
+
+
+def get_bytes(url: str) -> tuple[int, bytes]:
+    with urllib.request.urlopen(url, timeout=15) as resp:
+        return resp.status, resp.read()
+
+
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 def main() -> int:
@@ -109,6 +120,35 @@ def main() -> int:
                 else:
                     print("  ok    %-34s HTTP %s  %7d B  %s"
                           % (path, status, len(body.encode("utf-8")), label))
+
+            # 截图：指南页 HTML 里的 <img src> 必须是相对本页的路径
+            # （../assets/img/...），并且在 /<repo>/ 子路径部署下真能 200 拿到 PNG。
+            _status, guide = get(root + PREFIX + "/docs/derma_basic_guide.html")
+            imgs = re.findall(r'<img\s+src="([^"]+)"\s+alt="([^"]*)"', guide)
+            if not imgs:
+                failures.append("指南页没有任何 <img>")
+                print("  FAIL  %-34s 没有任何 <img>" % "/docs/derma_basic_guide.html")
+            for src, alt in imgs:
+                if src.startswith(("http://", "https://", "/")):
+                    failures.append("指南页图片不是相对路径: %s" % src)
+                    print("  FAIL  %-34s 图片路径必须相对: %s" % ("(图片)", src))
+                    continue
+                # 页面的目录是 /<repo>/docs/，相对引用就从这里解析
+                resolved = os.path.normpath(os.path.join(
+                    PREFIX + "/docs", urllib.parse.unquote(src))).replace("\\", "/")
+                url = root + resolved
+                try:
+                    status, blob = get_bytes(url)
+                except Exception as exc:  # noqa: BLE001
+                    failures.append("图片 %s -> %s" % (src, exc))
+                    print("  FAIL  图片 %-32s %s" % (src, exc))
+                    continue
+                if status != 200 or not blob.startswith(PNG_MAGIC):
+                    failures.append("图片 %s -> HTTP %s / PNG=%s" % (src, status, blob[:8]))
+                    print("  FAIL  图片 %-32s HTTP %s 不是 PNG" % (src, status))
+                else:
+                    print("  ok    %-34s HTTP %s  %7d B  %s"
+                          % (resolved, status, len(blob), alt[:26]))
 
             # 每个页面的公共结构（侧栏 / 搜索 / 主题切换 / 资源引用）
             for path in ("/", "/docs/build_and_run.html", "/docs/about.html"):

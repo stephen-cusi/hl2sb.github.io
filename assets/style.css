@@ -320,6 +320,26 @@ button { font-family: inherit; }
 .doc blockquote p, .prose blockquote p { margin: 6px 0; }
 .doc blockquote ul, .prose blockquote ul { margin: 6px 0; padding-left: 20px; }
 
+/* ---------- 截图 / screenshots ----------
+   约定：文档里的图片是 `![说明](../assets/img/...)`（相对生成的 HTML 页面，
+   同时也相对 docs/*.md 在 GitHub 上的位置），这里统一做成自适应列宽。 */
+.doc img, .prose img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 16px auto 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+/* 图注：图片下面单独成段的 `*斜体*` 一行 */
+.doc p > em:only-child, .prose p > em:only-child {
+  display: block;
+  margin: 0 0 18px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
 /* ---------- 表格 / tables ---------- */
 .table-wrap {
   margin: 22px 0;

@@ -6,7 +6,9 @@
   1. 每个 HTML 页面都能在本地 HTTP server 上打开（HTTP 200）；
   2. 站内链接与静态资源都存在（相对路径，任意 base path 可用）；
   3. 没有任何外部依赖（<link>/<script>/<img>/@import/字体）；
-  4. Markdown 渲染是否干净：表格、代码块、标题、标题 id、以及是否残留原始标记。
+  4. Markdown 渲染是否干净：表格、代码块、标题、标题 id、以及是否残留原始标记；
+  5. 截图（assets/img/*.png）：合法 PNG、有 alt 文本、相对引用能解析、指南里顺序正确；
+  6. 本地 HTTP：页面 + 截图全部 HTTP 200。
 
 用法:
     python tools/verify.py            # 自动起 http.server，自检后关闭
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import html as _html
 import http.server
 import os
 import re
@@ -144,7 +147,9 @@ def check_rendering() -> None:
     # 关键页面必须有的结构
     expect = {
         "docs/derma_basic_guide.html": ['<table', '<pre><code', 'class="codeblock"',
-                                        'id="5-皮肤skin系统"'],
+                                        'id="5-皮肤skin系统"',
+                                        '<img src="../assets/img/derma/test-panel-empty.png"',
+                                        '<img src="../assets/img/derma/test-panel-example.png"'],
         "docs/gmod_lua_port_plan.html": ['<table', 'class="codeblock"',
                                          'id="9-移植状态与经验v3-增补2026-09-12-09-13"',
                                          'id="9-移植状态与经验v3-增补2026-09-12--09-13"'],
@@ -182,6 +187,69 @@ def check_self_contained() -> None:
     ok("无 CDN / 无外部字体引用")
 
 
+def check_images() -> None:
+    print("\n[4] 图片 / screenshots")
+    img_root = os.path.join(DIST, "assets", "img")
+    if not os.path.isdir(img_root):
+        warn("dist/assets/img 不存在（Markdown 里还没有截图引用）")
+        return
+
+    # dist/ 里所有 PNG（含魔数校验）
+    pngs = []
+    for base, _dirs, files in os.walk(img_root):
+        for name in files:
+            if not name.lower().endswith(".png"):
+                continue
+            p = os.path.join(base, name)
+            rel = os.path.relpath(p, DIST).replace("\\", "/")
+            pngs.append(rel)
+            with open(p, "rb") as fh:
+                magic = fh.read(8)
+            if magic != b"\x89PNG\r\n\x1a\n":
+                fail("%s 不是合法 PNG（魔数 %r）" % (rel, magic))
+    pngs.sort()
+    if not pngs:
+        warn("dist/assets/img 下没有 PNG")
+        return
+
+    # 每个 <img>：相对路径、能解析到文件、有 alt 文本
+    seen: dict[str, list[str]] = {}
+    for page in html_files():
+        with open(os.path.join(DIST, *page.split("/")), "r", encoding="utf-8") as fh:
+            text = fh.read()
+        base_dir = os.path.dirname(os.path.join(DIST, *page.split("/")))
+        refs = re.findall(r'<img\b([^>]*)>', text)
+        seen[page] = []
+        for attrs in refs:
+            sm = re.search(r'src="([^"]+)"', attrs)
+            am = re.search(r'alt="([^"]*)"', attrs)
+            if not sm:
+                fail("%s 有 <img> 没有 src" % page)
+                continue
+            src = _html.unescape(sm.group(1))
+            seen[page].append(src)
+            if src.startswith(("http://", "https://", "//")):
+                fail("%s 的图片是外链: %s" % (page, src))
+                continue
+            resolved = os.path.normpath(os.path.join(base_dir, urllib.parse.unquote(src)))
+            if not os.path.isfile(resolved):
+                fail("%s -> 图片缺失 %s" % (page, src))
+            if not am or not _html.unescape(am.group(1)).strip():
+                fail("%s 的图片缺少 alt 文本: %s" % (page, src))
+
+    # 指南里的两张截图：顺序必须是「先空窗、后完整」
+    guide = seen.get("docs/derma_basic_guide.html", [])
+    want = ["../assets/img/derma/test-panel-empty.png",
+            "../assets/img/derma/test-panel-example.png"]
+    if guide != want:
+        fail("docs/derma_basic_guide.html 的图片应为 %s，实际 %s" % (want, guide))
+    else:
+        ok("指南里的两张截图顺序正确（空窗 -> 完整），相对路径 ../assets/img/... 解析成功")
+    ok("%d 张 PNG（%d KB）全部是合法 PNG，%d 个页面的 <img> 引用可解析"
+       % (len(pngs), sum(os.path.getsize(os.path.join(DIST, *p.split("/")))
+                         for p in pngs) // 1024, len(seen)))
+
+
 # ---------------------------------------------------------------- HTTP 检查
 class _Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *_a):  # noqa: D102
@@ -189,7 +257,7 @@ class _Quiet(http.server.SimpleHTTPRequestHandler):
 
 
 def check_http() -> None:
-    print("\n[4] 本地 HTTP 服务（相对路径 / 任意 base path）")
+    print("\n[5] 本地 HTTP 服务（相对路径 / 任意 base path）")
     handler = functools.partial(_Quiet, directory=DIST)
     with socketserver.TCPServer(("127.0.0.1", 0), handler) as httpd:
         port = httpd.server_address[1]
@@ -198,6 +266,11 @@ def check_http() -> None:
         try:
             pages = html_files() + ["assets/style.css", "assets/app.js",
                                     "assets/search-index.json", ".nojekyll"]
+            # 截图（PNG）也要能 200 拿到 —— 直接按页面里的相对引用反推 URL
+            for base, _dirs, files in os.walk(os.path.join(DIST, "assets", "img")):
+                for name in files:
+                    rel = os.path.relpath(os.path.join(base, name), DIST)
+                    pages.append(rel.replace("\\", "/"))
             for page in pages:
                 url = "http://127.0.0.1:%d/%s" % (port, urllib.parse.quote(page))
                 try:
@@ -228,6 +301,7 @@ def main() -> int:
     check_files_exist()
     check_rendering()
     check_self_contained()
+    check_images()
     if not args.no_http:
         check_http()
 
