@@ -13,7 +13,9 @@
      非 Lua 的围栏必须完全不高亮（负向对照）；
   7. 站内搜索：索引 URL 与搜索结果链接必须相对**每个页面自己的根**解析，且索引里的
      正文不许被静默截断（这两条正是「搜索什么都搜不到」的两个根因）；
-  8. 本地 HTTP：页面 + 截图全部 HTTP 200。
+  8. 中英双语：两种语言都译全了没有、右上角旗帜能否双向切换、中英同一页的标题锚点
+     是否逐字一致（英文页沿用中文锚点，深链才能跨语言通用）；
+  9. 本地 HTTP：页面 + 截图全部 HTTP 200。
 
 用法:
     python tools/verify.py            # 自动起 http.server，自检后关闭
@@ -119,6 +121,21 @@ def check_files_exist() -> None:
             if anchor not in ids:
                 fail("%s -> 断锚点 #%s" % (page, anchor))
 
+        # 跨页锚点：href="page.html#id" 要求目标页真的有这个 id
+        # （站内链接检查只看文件在不在，锚点错了一直没人管 —— 2026-09 真的断了两处）
+        for m in re.finditer(r'href="([^"#]+\.html)#([^"]+)"', text):
+            ref = m.group(1)
+            if ref.startswith(("http://", "https://", "//")):
+                continue
+            anchor = urllib.parse.unquote(m.group(2))
+            target = os.path.normpath(os.path.join(base_dir, urllib.parse.unquote(ref)))
+            if not os.path.isfile(target):
+                continue  # 文件本身缺失，上面的相对引用检查已经报过
+            with open(target, "r", encoding="utf-8") as fh:
+                target_text = fh.read()
+            if 'id="%s"' % anchor not in target_text:
+                fail("%s -> %s 里没有锚点 #%s" % (page, ref, anchor))
+
     ok("%d 个页面、%d 个相对引用全部可解析；%d 个外部依赖" % (len(pages), assets, external))
 
 
@@ -150,7 +167,7 @@ def check_rendering() -> None:
             if hits:
                 fail("%s: %s（%d 处，例：%r）" % (page, label, len(hits), hits[0][:70]))
 
-    # 关键页面必须有的结构
+    # 关键页面必须有的结构（中英各一份；英文页的锚点与中文**逐字相同**，见 [8]）
     expect = {
         "docs/derma_basic_guide.html": ['<table', '<pre><code', 'class="codeblock"',
                                         'id="5-皮肤skin系统"',
@@ -161,8 +178,18 @@ def check_rendering() -> None:
                                          'id="9-移植状态与经验v3-增补2026-09-12--09-13"'],
         "docs/build_and_run.html": ['<table', '<pre><code', 'waf.bat'],
         "docs/gmod_compat_layer.html": ['<table', 'lua/autorun/client'],
+        "docs/file_find.html": ['<table', 'class="language-lua"', 'file_Find'],
         "index.html": ['class="hero"', 'docs/derma_basic_guide.html', '<table'],
         "docs/index.html": ['class="toc"', 'gmod_lua_port_plan.html'],
+        # 英文镜像：多一层 ../ 的资源路径 + 英文界面文案
+        "en/index.html": ['class="hero"', 'en/docs/derma_basic_guide.html', 'class="lang-switch"'],
+        "en/docs/derma_basic_guide.html": ['<table', '<pre><code',
+                                           'id="5-皮肤skin系统"',
+                                           '<img src="../../assets/img/derma/test-panel-empty.png"',
+                                           '<img src="../../assets/img/derma/test-panel-example.png"'],
+        "en/docs/file_find.html": ['<table', 'class="language-lua"', 'file_Find',
+                                   'lang="zh-CN"'],
+        "en/docs/index.html": ['class="toc"', 'gmod_lua_port_plan.html'],
     }
     for page, needles in expect.items():
         rel = page[5:] if page.startswith("dist/") else page
@@ -381,24 +408,12 @@ def check_search() -> None:
       404），`JSON.parse` 失败后 index 变成空数组，任何文档页都只回「没有匹配的页面」。
     * `tools/build.py` 以前把每页正文砍到 6000 字符，36 KB 的移植计划页后 83% 搜不到。
 
-    这里照着 app.js 的算法（从自己那个 <script src> 反推站点根）逐页解析，把两种都挡住。
+    这里照着 app.js 的算法（读页面自己的 data-index，并校验结果链接）逐页解析，把两种都挡住。
+    中英各有**一份**索引（英文是 assets/search-index.en.json），由页面上的
+    `data-index` 指出该用哪一份，所以这里必须按页面实际声明的那份来验。
     """
     print("\n[7] 站内搜索（索引可达性 / 结果链接 / 召回）")
-    idx_path = os.path.join(DIST, "assets", "search-index.json")
     js_path = os.path.join(DIST, "assets", "app.js")
-    if not os.path.isfile(idx_path):
-        fail("缺少 assets/search-index.json —— 先跑 python tools/build.py")
-        return
-    try:
-        with open(idx_path, "r", encoding="utf-8") as fh:
-            index = json.load(fh)
-    except Exception as exc:  # noqa: BLE001
-        fail("assets/search-index.json 不是合法 JSON：%s" % exc)
-        return
-    if not index:
-        fail("assets/search-index.json 是空数组 —— 搜索永远没有结果")
-        return
-
     with open(js_path, "r", encoding="utf-8") as fh:
         js = fh.read()
     if "SITE_ROOT" not in js:
@@ -415,13 +430,10 @@ def check_search() -> None:
         limit = build.SEARCH_TEXT_LIMIT
     except Exception:  # noqa: BLE001
         warn("读不到 tools/build.py 的 SEARCH_TEXT_LIMIT，跳过截断检查")
-    if limit:
-        at_limit = [e.get("url", "?") for e in index if len(e.get("text") or "") >= limit]
-        if at_limit:
-            fail("这些页面的正文顶到了搜索上限 %d，尾部搜不到：%s"
-                 % (limit, ", ".join(at_limit)))
 
     verified = 0
+    links_checked = 0
+    per_lang: dict[str, int] = {}
     for page in html_files():
         path = os.path.join(DIST, *page.split("/"))
         with open(path, "r", encoding="utf-8") as fh:
@@ -430,21 +442,137 @@ def check_search() -> None:
         root = m.group(1)[: m.group(1).index("assets/app.js")] if m else ""
         base = os.path.dirname(path)
 
-        resolved = os.path.normpath(os.path.join(base, root + "assets/search-index.json"))
-        if not os.path.isfile(resolved):
-            fail("%s 取不到搜索索引（app.js 会请求 %s）"
-                 % (page, os.path.relpath(resolved, DIST)))
+        # 页面声明的索引（构建器写成 $$ROOT$$ + assets/search-index[.en].json）
+        mi = re.search(r'id="searchOverlay"[^>]*data-index="([^"]+)"', text, re.S)
+        if not mi:
+            fail("%s 的搜索面板没有 data-index（app.js 不知道该取哪份索引）" % page)
             continue
+        resolved = os.path.normpath(os.path.join(base, mi.group(1)))
+        if not os.path.isfile(resolved):
+            fail("%s 取不到搜索索引（页面声明的是 %s）" % (page, mi.group(1)))
+            continue
+        try:
+            with open(resolved, "r", encoding="utf-8") as fh:
+                index = json.load(fh)
+        except Exception as exc:  # noqa: BLE001
+            fail("%s 的索引不是合法 JSON：%s" % (page, exc))
+            continue
+        if not index:
+            fail("%s 的索引是空数组 —— 这一语言的搜索永远没有结果" % page)
+            continue
+        per_lang[os.path.relpath(resolved, DIST)] = len(index)
+
+        if limit:
+            at_limit = [e.get("url", "?") for e in index
+                        if len(e.get("text") or "") >= limit]
+            if at_limit:
+                fail("这些页面的正文顶到了搜索上限 %d，尾部搜不到：%s"
+                     % (limit, ", ".join(at_limit)))
 
         broken = [e.get("url", "?") for e in index
                   if not os.path.isfile(os.path.normpath(os.path.join(base, root + e["url"])))]
         if broken:
             fail("%s 上有 %d 条搜索结果打不开（例：%s）" % (page, len(broken), broken[0]))
             continue
+        links_checked += len(index)
         verified += 1
 
-    ok("索引可解析（%d 条），%d 个页面都能取到索引、%d 条结果链接全部可解析"
-       % (len(index), verified, len(index) * verified))
+    ok("索引 %s，%d 个页面都能取到自己的索引、%d 条结果链接全部可解析"
+       % ("、".join("%s(%d 条)" % kv for kv in sorted(per_lang.items())),
+          verified, links_checked))
+
+
+# ---------------------------------------------------------------- 中英双语
+def doc_heading_ids(path: str) -> list[str]:
+    """页面正文里 H2/H3 的 id，按出现顺序（用来比对中英同一页的结构）。"""
+    with open(path, "r", encoding="utf-8") as fh:
+        text = fh.read()
+    m = re.search(r'<article class="doc">(.*?)</article>', text, re.S)
+    body = m.group(1) if m else text
+    return re.findall(r'<h[23] id="([^"]+)"', body)
+
+
+def check_bilingual() -> None:
+    """中英双语：译全了没有、右上角旗帜切得回去、两侧结构逐字对齐。
+
+    ⚠️ 英文页的标题**沿用中文锚点**（Markdown 里写成 `## English title {#中文锚点}`），
+    所以两种语言的 id 序列必须完全一致 —— 这条同时保证了：
+      * 任何 `page.html#锚点` 的深链在两种语言下都能用；
+      * 英文版不会悄悄漏掉/多出章节（结构对齐）。
+    """
+    print("\n[8] 中英双语（对照页 / 旗帜切换 / 结构对齐）")
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import build  # noqa: E402
+    except Exception as exc:  # noqa: BLE001
+        fail("读不到 tools/build.py 的页面清单（%s），无法校验双语" % exc)
+        return
+
+    pairs = 0
+    for page in build.PAGES:
+        outs = {}
+        for code in build.LANG_CODES:
+            out = page["out"].get(code)
+            if not out:
+                fail("页面 docs/%s 缺少 %s 的输出路径" % (page["src"].get("zh", "?"), code))
+                continue
+            path = os.path.join(DIST, *out.split("/"))
+            if not os.path.isfile(path):
+                fail("缺少 %s（docs/%s 没有对应译文？）" % (out, page["src"].get(code, "?")))
+                continue
+            outs[code] = path
+
+        # 同一逻辑页在两种语言下、H2/H3 的 id 序列必须逐字相同
+        if len(outs) == len(build.LANG_CODES):
+            ids = {code: doc_heading_ids(p) for code, p in outs.items()}
+            base = ids[build.LANG_CODES[0]]
+            for code in build.LANG_CODES[1:]:
+                if ids[code] != base:
+                    diff = next((i for i, (a, b) in enumerate(zip(base, ids[code])) if a != b),
+                                min(len(base), len(ids[code])))
+                    fail("%s 的标题结构与本页 %s 不一致（第 %d 个标题：%r vs %r，共 %d vs %d 个）"
+                         % (page["out"][code], build.LANG_CODES[0], diff + 1,
+                            base[diff] if diff < len(base) else None,
+                            ids[code][diff] if diff < len(ids[code]) else None,
+                            len(base), len(ids[code])))
+                    break
+            else:
+                pairs += 1
+
+    # 每一页都要有且只有一个语言切换器，且指向对方；对方必须能切回来
+    switches = 0
+    for page in html_files():
+        path = os.path.join(DIST, *page.split("/"))
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        found = re.findall(r'<a class="lang-switch" href="([^"]+)" hreflang="([^"]+)"', text)
+        if len(found) != 1:
+            fail("%s 有 %d 个语言切换器（应该正好 1 个）" % (page, len(found)))
+            continue
+        href, hreflang = found[0]
+        target = os.path.normpath(os.path.join(os.path.dirname(path), href))
+        if not os.path.isfile(target):
+            fail("%s 的语言切换器指向不存在的页面（%s）" % (page, href))
+            continue
+        with open(target, "r", encoding="utf-8") as fh:
+            back = fh.read()
+        want = os.path.relpath(path, os.path.dirname(target) or ".").replace("\\", "/")
+        if 'href="%s"' % want not in back:
+            fail("%s -> %s 切得过去，但切不回来（对方没有指回 %s）" % (page, href, want))
+            continue
+        if 'hreflang="%s"' % hreflang not in back:
+            fail("%s 与 %s 的 hreflang 不对称" % (page, href))
+            continue
+        with open(path, "r", encoding="utf-8") as fh:
+            alts = len(re.findall(r'<link rel="alternate" hreflang="', text))
+        if alts != len(build.LANG_CODES):
+            fail("%s 有 %d 个 hreflang alternate（应有 %d 个）"
+                 % (page, alts, len(build.LANG_CODES)))
+            continue
+        switches += 1
+
+    ok("%d 组页面中英结构逐字对齐（锚点相同）；%d 个页面的旗帜切换器双向可达、hreflang 齐全"
+       % (pairs, switches))
 
 
 # ---------------------------------------------------------------- HTTP 检查
@@ -503,6 +631,7 @@ def main() -> int:
     if not args.no_http:
         check_http()
     check_search()
+    check_bilingual()
 
     print("\n结果: %d 项通过, %d 个警告, %d 个失败" % (OK, len(WARN), len(FAIL)))
     for w in WARN:

@@ -67,7 +67,7 @@
     lb.hidden = true;
     lb.setAttribute("role", "dialog");
     lb.setAttribute("aria-modal", "true");
-    lb.setAttribute("aria-label", "放大的截图（点击或按 Esc 关闭）");
+    lb.setAttribute("aria-label", UI.lbClose);
     var big = doc.createElement("img");
     big.alt = "";
     var cap = doc.createElement("div");
@@ -118,7 +118,7 @@
     Array.prototype.forEach.call(imgs, function (img) {
       img.setAttribute("tabindex", "0");
       img.setAttribute("role", "button");
-      img.setAttribute("aria-label", "放大截图：" + (img.getAttribute("alt") || ""));
+      img.setAttribute("aria-label", UI.lbOpen + (img.getAttribute("alt") || ""));
       img.addEventListener("click", function () { openLightbox(img); });
       img.addEventListener("keydown", function (ev) {
         if (ev.key === "Enter" || ev.key === " " || ev.key === "Spacebar") {
@@ -139,7 +139,7 @@
     var text = code.innerText;
     var done = function () {
       var old = btn.textContent;
-      btn.textContent = "已复制";
+      btn.textContent = btn.getAttribute("data-copied") || "已复制";
       setTimeout(function () { btn.textContent = old; }, 1200);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -194,12 +194,28 @@
     return src.replace(/assets\/app\.js(\?.*)?$/, "");
   })();
 
+  /* 界面文案与「该取哪份搜索索引」都由构建器写在 HTML 的 data-* 上（每种语言一份，
+     英文是 search-index.en.json），这里只读它们并保留中文兜底 —— 中英共用同一份脚本。 */
+  function pick(el, attr, fallback) {
+    var v = el ? el.getAttribute(attr) : null;
+    return (v === null || v === undefined || v === "") ? fallback : v;
+  }
+
+  var UI = {
+    idle: pick(overlay, "data-idle", "输入关键词开始搜索。"),
+    loading: pick(overlay, "data-loading", "正在加载索引…"),
+    none: pick(overlay, "data-none", "没有匹配的页面。"),
+    index: pick(overlay, "data-index", SITE_ROOT + "assets/search-index.json"),
+    lbOpen: pick(doc.body, "data-lb-open", "放大截图："),
+    lbClose: pick(doc.body, "data-lb-close", "放大的截图（点击或按 Esc 关闭）")
+  };
+
   function loadIndex(cb) {
     if (index) { cb(); return; }
     if (loading) return;
     loading = true;
     var req = new XMLHttpRequest();
-    req.open("GET", SITE_ROOT + "assets/search-index.json", true);
+    req.open("GET", UI.index, true);
     req.onload = function () {
       loading = false;
       try { index = JSON.parse(req.responseText); } catch (e) { index = []; }
@@ -273,12 +289,12 @@
     if (!results) return;
     var q = (input && input.value || "").trim().toLowerCase();
     if (!q) {
-      results.innerHTML = '<p class="muted" style="padding:8px 12px">输入关键词开始搜索。</p>';
+      results.innerHTML = '<p class="muted" style="padding:8px 12px">' + esc(UI.idle) + "</p>";
       hits = [];
       return;
     }
     if (index === null) {
-      results.innerHTML = '<p class="muted" style="padding:8px 12px">正在加载索引…</p>';
+      results.innerHTML = '<p class="muted" style="padding:8px 12px">' + esc(UI.loading) + "</p>";
       return;
     }
     var terms = q.split(/\s+/).filter(Boolean);
@@ -292,7 +308,7 @@
     hits = found.map(function (h) { return h.e; });
     sel = 0;
     if (!found.length) {
-      results.innerHTML = '<p class="muted" style="padding:8px 12px">没有匹配的页面。</p>';
+      results.innerHTML = '<p class="muted" style="padding:8px 12px">' + esc(UI.none) + "</p>";
       return;
     }
     var html = "";

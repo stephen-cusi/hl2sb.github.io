@@ -86,10 +86,44 @@ CHECKS = [
     ("/assets/search-index.json", "搜索索引", ["derma_basic_guide.html", "headings"]),
     ("/assets/favicon.svg", "图标", ["<svg"]),
     ("/404.html", "404 页面", ["404"]),
+
+    # ---- 英文镜像 /en/（结构、锚点、资源路径都要与中文对齐）----
+    ("/en/index.html", "英文首页",
+     ["class=\"hero\"", "en/docs/derma_basic_guide.html", "class=\"lang-switch\"",
+      "documentation", "id=\"searchOverlay\""]),
+    ("/en/docs/index.html", "Wiki index (EN)",
+     ["derma_basic_guide.html", "gmod_lua_port_plan.html", "class=\"toc\""]),
+    ("/en/docs/derma_basic_guide.html", "Derma basics (EN)",
+     ["<table", "<pre><code", "class=\"codeblock\"",
+      # 英文页深一层：图片必须是 ../../assets/...
+      "src=\"../../assets/img/derma/test-panel-empty.png\"",
+      "src=\"../../assets/img/derma/test-panel-example.png\"",
+      # 锚点与中文页逐字相同（深链跨语言通用）
+      "id=\"0-运行环境和-gmod-不一样的第一件事\"", "id=\"5-皮肤skin系统\"",
+      "class=\"language-lua\"", "class=\"tok-keyword\""]),
+    ("/en/docs/file_find.html", "file.Find (EN)",
+     ["<table", "class=\"language-lua\"", "class=\"tok-keyword\"", "file_Find",
+      "wiki.facepunch.com/gmod/file.Find", "id=\"4-pathid-支持情况\""]),
+    ("/en/docs/gmod_lua_port_plan.html", "port plan (EN)",
+     ["<table", "class=\"codeblock\"", "id=\"9-移植状态与经验v3-增补2026-09-12-09-13\""]),
+    ("/en/docs/gmod_compat_layer.html", "compat layer (EN)",
+     ["<table", "lua/includes/extensions"]),
+    ("/en/docs/build_and_run.html", "build & run (EN)",
+     ["waf.bat", "class=\"toc\"", "lua/autorun"]),
+    ("/en/docs/about.html", "about (EN)", ["Facepunch", "stephen-cusi/source-engine-mod"]),
+    ("/en/404.html", "404 (EN)", ["404"]),
+    ("/assets/search-index.en.json", "英文搜索索引",
+     ["gmod_lua_port_plan.html", "headings"]),
+    ("/assets/app.js", "脚本（双语）",
+     ["data-index", "data-copied", "data-none", "data-lb-close"]),
 ]
 
+# 公共结构在这些页面上都要有（中英各挑几页）
+STRUCT_PAGES = ["/", "/docs/file_find.html", "/en/index.html", "/en/docs/file_find.html",
+                "/docs/build_and_run.html", "/docs/about.html"]
+
 STRUCT = ["id=\"searchOverlay\"", "class=\"side-nav\"", "theme-toggle",
-          "assets/style.css", "assets/app.js", "id=\"sideSearch\""]
+          "class=\"lang-switch\"", "assets/style.css", "assets/app.js", "id=\"sideSearch\""]
 
 
 failures: list[str] = []
@@ -227,27 +261,81 @@ def main() -> int:
                                         % (src, w, h))
                         print("  FAIL  图片 %-32s %dx%d 太大" % (src, w, h))
 
-            # 每个页面的公共结构（侧栏 / 搜索 / 主题切换 / 资源引用）
-            for path in ("/", "/docs/build_and_run.html", "/docs/about.html"):
+            # 每个页面的公共结构（侧栏 / 搜索 / 主题 / 语言切换 / 资源引用），中英都查
+            for path in STRUCT_PAGES:
                 _status, body = get(root + PREFIX + path)
                 for needle in STRUCT:
                     if needle not in body:
                         failures.append("%s 缺少 %r" % (path, needle))
                         print("  FAIL  %-34s 缺少 %s" % (path, needle))
-            print("  ok    %-34s 侧栏 / 搜索面板 / 主题切换 / 资源引用齐全" % "(公共结构)")
+            print("  ok    %-34s 侧栏 / 搜索面板 / 主题 / 语言切换 / 资源引用齐全（中英）"
+                  % "(公共结构)")
 
-            # 站内搜索：用 app.js 的同一套算法（页面自己的根 + SITE_ROOT）算出浏览器
-            # 真正会请求的 URL，逐页抓索引、逐条抓结果链接，再跑一遍 score() 的等价
-            # 实现确认「确实搜得到东西」。以前索引是页面相对的，docs/ 页面拿到 404，
-            # 于是搜索永远回「没有匹配的页面」。
-            _status, root_page = get(root + PREFIX + "/index.html")
-            _status, doc_page = get(root + PREFIX + "/docs/file_find.html")
-            index = None
-            for label, page_html, page_dir in (("/index.html", root_page, "/"),
-                                               ("/docs/file_find.html", doc_page, "/docs/")):
-                r = page_root(page_html)
+            # 语言切换器：中文页 -> 英文页 -> 必须能切回来（旗帜按钮就是这两条链接）
+            for from_path, to_hreflang in (("/docs/file_find.html", "en"),
+                                           ("/en/docs/file_find.html", "zh-CN")):
+                _st, body = get(root + PREFIX + from_path)
+                m = re.search(r'<a class="lang-switch" href="([^"]+)" hreflang="([^"]+)"', body)
+                if not m:
+                    failures.append("%s 没有语言切换器" % from_path)
+                    print("  FAIL  %-34s 没有语言切换器" % from_path)
+                    continue
+                href, hreflang = m.group(1), m.group(2)
+                page_dir = os.path.dirname(PREFIX + from_path)
+                target = os.path.normpath(
+                    os.path.join(page_dir, urllib.parse.unquote(href))).replace("\\", "/")
+                try:
+                    status, back = get(root + target)
+                except Exception as exc:  # noqa: BLE001
+                    failures.append("%s 的语言切换器 -> %s（%s）" % (from_path, href, exc))
+                    print("  FAIL  %-34s 语言切换器 -> %s" % (from_path, exc))
+                    continue
+                want_back = os.path.relpath(PREFIX + from_path, os.path.dirname(target)).replace("\\", "/")
+                if status != 200 or hreflang != to_hreflang or 'href="%s"' % want_back not in back:
+                    failures.append("%s -> %s 切换失败（HTTP %s / hreflang %s / 回链 %s）"
+                                    % (from_path, href, status, hreflang, want_back))
+                    print("  FAIL  %-34s 语言切换器 -> %s HTTP %s" % (from_path, href, status))
+                else:
+                    print("  ok    %-34s 语言切换器 -> %s HTTP 200（hreflang=%s，可切回）"
+                          % (from_path, href, hreflang))
+
+            # 跨页锚点：目录页里指向别页的 #锚点 必须在目标页真的存在
+            # （2026-09 中文页里真的断了两处，英文版照抄也一起断 —— 现在静态 + 动态都查）
+            for index_path in ("/docs/index.html", "/en/docs/index.html"):
+                _st, body = get(root + PREFIX + index_path)
+                page_dir = os.path.dirname(PREFIX + index_path)
+                checked = 0
+                for ref, anchor in re.findall(r'href="([^"#]+\.html)#([^"]+)"', body):
+                    target = os.path.normpath(
+                        os.path.join(page_dir, urllib.parse.unquote(ref))).replace("\\", "/")
+                    try:
+                        st, target_html = get(root + target)
+                    except Exception:  # noqa: BLE001
+                        st = 0
+                    if st != 200 or 'id="%s"' % urllib.parse.unquote(anchor) not in target_html:
+                        failures.append("%s -> %s#%s 锚点不存在（HTTP %s）"
+                                        % (index_path, ref, anchor, st))
+                        print("  FAIL  %-34s 锚点 %s#%s 不存在" % (index_path, ref, anchor))
+                    else:
+                        checked += 1
+                print("  ok    %-34s %d 个跨页锚点全部命中" % (index_path, checked))
+
+            # 站内搜索：按每个页面自己声明的 data-index 抓索引（中英各一份），
+            # 逐条抓结果链接，再跑 score() 的等价实现确认「确实搜得到东西」。
+            # 以前索引是页面相对的，docs/ 页面拿到 404，于是搜索永远回「没有匹配的页面」。
+            indexes = {}
+            for label, page_path, page_dir in (("/index.html", "/index.html", "/"),
+                                               ("/docs/file_find.html", "/docs/file_find.html", "/docs/"),
+                                               ("/en/index.html", "/en/index.html", "/en/"),
+                                               ("/en/docs/file_find.html", "/en/docs/file_find.html", "/en/docs/")):
+                _st, page_html = get(root + PREFIX + page_path)
+                mi = re.search(r'id="searchOverlay"[^>]*data-index="([^"]+)"', page_html, re.S)
+                if not mi:
+                    failures.append("%s 的搜索面板没有 data-index" % label)
+                    print("  FAIL  %-34s 搜索面板没有 data-index" % label)
+                    continue
                 idx_url = os.path.normpath(
-                    PREFIX + page_dir + r + "assets/search-index.json").replace("\\", "/")
+                    os.path.join(PREFIX + page_dir, urllib.parse.unquote(mi.group(1)))).replace("\\", "/")
                 try:
                     status, body = get(root + idx_url)
                     parsed = json.loads(body)
@@ -260,14 +348,15 @@ def main() -> int:
                                     % (label, idx_url, status, len(parsed or [])))
                     print("  FAIL  %-34s 索引 %s HTTP %s" % (label, idx_url, status))
                     continue
-                index = index or parsed
+                indexes[label] = parsed
                 print("  ok    %-34s 索引 HTTP 200  %d 条  %s"
                       % (label, len(parsed), idx_url))
 
+                r = page_root(page_html)
                 broken = []
                 for entry in parsed:
                     target = os.path.normpath(
-                        PREFIX + page_dir + r + entry.get("url", "")).replace("\\", "/")
+                        os.path.join(PREFIX + page_dir, r + entry.get("url", ""))).replace("\\", "/")
                     try:
                         st, _b = get(root + target)
                     except Exception:  # noqa: BLE001
@@ -283,42 +372,55 @@ def main() -> int:
                     print("  ok    %-34s %d 条搜索结果链接全部 HTTP 200"
                           % (label, len(parsed)))
 
-            if index:
-                # 召回：file.Find 是本页；hook.call 只出现在移植计划页 12808 字符处 ——
-                # 正文上限还是 6000 的时候这条必挂，等于回归锁。
-                for query, want in (("file.Find", "docs/file_find.html"),
-                                    ("hook.call", "docs/gmod_lua_port_plan.html")):
+            # 召回：中英各测一组。file.Find 是本页；hook.call 只出现在移植计划页的深处
+            # （中文 12808 字符处、英文更靠后）—— 正文上限还是 6000 的时候这些必挂，
+            # 等于给「长页面搜不到」上的回归锁。
+            for label, want_hits in (
+                    ("/index.html", [("file.Find", "docs/file_find.html"),
+                                     ("hook.call", "docs/gmod_lua_port_plan.html")]),
+                    ("/en/index.html", [("file.Find", "en/docs/file_find.html"),
+                                        ("hook.call", "en/docs/gmod_lua_port_plan.html")])):
+                index = indexes.get(label)
+                if not index:
+                    continue
+                for query, want in want_hits:
                     hits = js_search(index, query)
                     if want in hits:
                         print("  ok    %-34s 搜索 %-14s 命中 %d 条，含 %s"
-                              % ("(搜索召回)", repr(query), len(hits), want))
+                              % ("(搜索召回 " + label + ")", repr(query), len(hits), want))
                     else:
                         failures.append("搜索 %r 找不到 %s（命中 %s）" % (query, want, hits[:3]))
                         print("  FAIL  %-34s 搜索 %r 找不到 %s（命中 %s）"
                               % ("(搜索召回)", query, want, hits[:3]))
                 if js_search(index, "zzz-no-such-term-zzz"):
-                    failures.append("搜索负向对照失败：乱词也命中了页面")
+                    failures.append("搜索负向对照失败：乱词也命中了页面（%s）" % label)
                     print("  FAIL  %-34s 乱词居然也命中" % "(搜索召回)")
                 else:
                     print("  ok    %-34s 负向对照：乱词 0 命中" % "(搜索召回)")
 
-            # 首页出去的每一条站内链接都要能打开
-            _status, home = get(root + PREFIX + "/")
-            links = sorted(set(re.findall(r'href="((?!http|#|mailto)[^"]+)"', home)))
-            for link in links:
-                if link.endswith(".css") or link.endswith(".js") or link.endswith(".svg"):
-                    continue
-                url = root + PREFIX + "/" + link.lstrip("/")
-                try:
-                    status, _body = get(url)
-                    if status != 200:
-                        failures.append("首页链接 %s -> %s" % (link, status))
-                        print("  FAIL  首页 -> %-26s HTTP %s" % (link, status))
-                    else:
-                        print("  ok    首页 -> %-26s HTTP 200" % link)
-                except Exception as exc:  # noqa: BLE001
-                    failures.append("首页链接 %s -> %s" % (link, exc))
-                    print("  FAIL  首页 -> %-26s %s" % (link, exc))
+            # 两个首页出去的每一条站内链接都要能打开（中英各爬一遍）
+            for home_path in ("/", "/en/index.html"):
+                _status, home = get(root + PREFIX + home_path)
+                home_dir = os.path.dirname(PREFIX + home_path)
+                links = sorted(set(re.findall(r'href="((?!http|#|mailto)[^"]+)"', home)))
+                bad = 0
+                for link in links:
+                    if link.endswith(".css") or link.endswith(".js") or link.endswith(".svg"):
+                        continue
+                    target = os.path.normpath(
+                        os.path.join(home_dir, urllib.parse.unquote(link))).replace("\\", "/")
+                    try:
+                        status, _body = get(root + target)
+                        if status != 200:
+                            bad += 1
+                            failures.append("%s 链接 %s -> %s" % (home_path, link, status))
+                            print("  FAIL  %-14s -> %-26s HTTP %s" % (home_path, link, status))
+                    except Exception as exc:  # noqa: BLE001
+                        bad += 1
+                        failures.append("%s 链接 %s -> %s" % (home_path, link, exc))
+                        print("  FAIL  %-14s -> %-26s %s" % (home_path, link, exc))
+                if not bad:
+                    print("  ok    %-14s 的 %d 条站内链接全部 HTTP 200" % (home_path, len(links)))
         finally:
             httpd.shutdown()
 

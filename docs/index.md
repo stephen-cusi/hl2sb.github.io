@@ -44,6 +44,6 @@ title: Wiki 目录
 * **覆盖容器面板的 `Paint` 会让整棵子树不绘制**：
   [§3](derma_basic_guide.html#3-覆盖-paint-的坑本仓库实测)。
 * **不要用 `surface.CreateFont("Marlett", ...)` 遮蔽方案字体**：
-  [§4](derma_basic_guide.html#4-字体不要遮蔽-scheme-里的字体marlett-那一课的完整版)。
+  [§4](derma_basic_guide.html#4-字体-不要遮蔽-scheme-里的字体marlett-那一课的完整版)。
 * **DLL 只在游戏启动时加载**，改完 C++ 必须完全重启：
   [构建与运行](build_and_run.html)。

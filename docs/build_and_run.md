@@ -127,5 +127,5 @@ lua/game/client              ← 客户端脚本（服务端不加载这个目�
 | 覆盖容器面板的 `Paint` | ⚠️ 会让子面板不绘制，见 [指南 §3](derma_basic_guide.html#3-覆盖-paint-的坑本仓库实测) |
 | 少数 GMod 独有全局（如 `Entity`） | ❌ 不存在，移植 GMod 插件时要替换 |
 
-完整清单见 [Derma 基础指南 §8](derma_basic_guide.html#8-已知差异--未实现相对-gmod) 与
+完整清单见 [Derma 基础指南 §8](derma_basic_guide.html#8-已知差异-未实现相对-gmod) 与
 [移植计划与状态](gmod_lua_port_plan.html#9-移植状态与经验v3-增补2026-09-12-09-13)。

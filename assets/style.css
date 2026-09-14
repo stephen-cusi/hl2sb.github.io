@@ -146,6 +146,21 @@ button { font-family: inherit; }
 .nav-toggle { display: none; }
 .theme-icon { font-size: 15px; }
 
+/* 右上角的语言切换器（中英双语）：内联 SVG 旗帜 + 目标语言的短名。
+   ⚠️ 用 SVG 而不是国旗 emoji —— Windows 浏览器不渲染 🇨🇳/🇬🇧，会退化成 CN / GB 字母。 */
+.lang-switch {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 9px; border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff; font-size: 12px; line-height: 1; white-space: nowrap;
+}
+.lang-switch:hover { background: rgba(0, 130, 255, 0.55); color: #fff; text-decoration: none; }
+.lang-switch .flag {
+  display: block; height: 14px; width: auto;
+  border-radius: 2px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.lang-label { letter-spacing: 0.3px; }
+
 /* ---------- 布局 / layout ---------- */
 .layout {
   display: flex;
@@ -630,6 +645,8 @@ button { font-family: inherit; }
 @media (max-width: 640px) {
   .brand-sub { display: none; }
   .search-open-text { display: none; }
+  .lang-label { display: none; }
+  .lang-switch { padding: 0 7px; }
   .doc table, .prose table { font-size: 11.5px; }
   .doc th, .prose th, .doc td, .prose td { padding: 4px 6px; }
 }
