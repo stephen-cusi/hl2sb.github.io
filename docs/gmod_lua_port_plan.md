@@ -163,7 +163,7 @@ GMod 兼容层，规模不小：
 | `vgui.Create` / `vgui.Register` / `vgui.GetControlTable` | **已有一版**（`gmod_vgui.lua` + C++ `game/client/lua/scripted_controls/LPanel : public vgui::Panel`） | 需要跟 GMod 的 `scriptedpanels.lua` 对齐（`GetTable` vs `GetRefTable`、`CreateFromTable`、`vgui.Exists`…） |
 | `DisableClipping`（Derma 用） | 见上 | —— |
 | `ModelImage` / `SpawnIcon` 的模型缩略图 | `game/client` 的 `CModelPanel`/`CModelImage`（`vgui_controls`） | GMod 是运行时渲染，HL2SB 缺绑定；玩家模型菜单已踩过 |
-| `surface.GetTextureID` / `SetTexture` / `DrawRect` / `SetDrawColor` / `SetTextColor` / `SetTextPos` / `DrawText` / `Material(path)` / `DrawTexturedRectUV` | **已在** `lua/includes/extensions/gmod_surface.lua`（Lua 层） | 长期应下沉到 C++，但**能用** |
+| `surface.GetTextureID` / `SetTexture` / `DrawRect` / `SetDrawColor` / `SetTextColor` / `SetTextPos` / `DrawText` / `Material(path)` / `DrawTexturedRectUV` | **已在** `lua/includes/extensions/gmod_surface.lua`（Lua 层）；其中 `Material()` 现在**是真正的 C 绑定**（客户端 `litexture.cpp:476`、服务端 `limaterial.cpp:445`），Lua proxy 只在 `Material == nil` 时才会装上 | 其余几个长期可下沉到 C++，但**能用**。见 [Material / CreateMaterial](material.html) |
 
 ### 3.2 网络
 
@@ -361,8 +361,8 @@ GMod 兼容层，规模不小：
       `derma.lua` 的 `FindPanelsByClass()` 重载控件定义时要它；addon 也用它找/关窗口。
       ⚠️ 修掉双载后它不再是致命路径（只有真重载才走 `ReloadClass`）。
 - [ ] Lua：`surface.GetTextSize(text)` 一参数形态（放 `lua/autorun/client/`）
-- [ ] 引擎：`Material()` 下沉为真正的 C 绑定（绑定后把 `lua/includes/` 挪回
-      extensions **之前**，与 GMod 顺序一致；见两个调用点的 TODO(port)）
+- [x] 引擎：`Material()` 已下沉为真正的 C 绑定（客户端 `litexture.cpp:476`，服务端 `limaterial.cpp:445`；
+      客户端 Lua proxy 只在 `Material == nil` 时才装）。剩下的缺口是 IMaterial 的**材质变量读写**，见 §9.7 与 [IMaterial](imaterial.html)
 - [ ] 引擎：`CreateConVar` 做成真绑定（GMod 契约 `(name, default, flags, helptext, min, max)`）。
       现在的 Lua shim 是 `ConVar(name, def, flags, help, min, max)`，而引擎的 `ConVar` 是
       `(name, default, flags, help, **bMin, fMin, bMax, fMax**) —— `min`/`max` 数字落在布尔位上。
@@ -745,7 +745,7 @@ GMod 兼容层，规模不小：
      `IMaterialSystem` 上**，且客户端**已有先例**——
      `game/client/c_viewmodel_attachment.cpp` 的 `CPlayerColorProxyFactory`
      就是「包装旧工厂、保留链」的写法，扩它即可，**不需要重编 engine.dll**。
-   - `IMaterial:SetVector( name, vec )`（`public/lua/materialsystem/limaterial.cpp` 目前只有 `GetName`/`IsError`）。
+   - `IMaterial:SetVector( name, vec )`（`public/lua/materialsystem/limaterial.cpp` 已有 46 个原生方法，缺的是**材质变量读写**那一族：`SetVector`/`SetFloat`/`SetInt`/`SetString`/`SetMatrix`/`SetTexture` 全都没有 —— 详见 [IMaterial §7](imaterial.html#7-与-gmod-的差异-注意)）。
    - `Player:GetWeaponColor()` / `SetWeaponColor()`（引擎完全没有；GMod 是**联网**变量）。
 2. **NPC 的 `m_iMaxHealth` 与客户端的 `m_takedamage`**（本轮只网络化了玩家，提交 `50d1f475`）。
    要彻底对齐 GMod，就在 `DT_BaseEntity` 上加（GMod 的 client.dll 两个字符串都有），

@@ -278,6 +278,39 @@ PAGES = [
         },
     },
     {
+        "group": "api",
+        "src": {"zh": "csoundpatch.md", "en": "en/csoundpatch.md"},
+        "out": {"zh": "docs/csoundpatch.html", "en": "en/docs/csoundpatch.html"},
+        "text": {"zh": "CreateSound / CSoundPatch", "en": "CreateSound / CSoundPatch"},
+        "desc": {
+            "zh": "CreateSound 与它返回的通道对象（CSoundPatch 的对应实现）：方法、生命周期与差异。",
+            "en": "CreateSound and the channel object it returns (this fork's CSoundPatch): "
+                  "methods, lifetime, differences.",
+        },
+    },
+    {
+        "group": "api",
+        "src": {"zh": "material.md", "en": "en/material.md"},
+        "out": {"zh": "docs/material.html", "en": "en/docs/material.html"},
+        "text": {"zh": "Material / CreateMaterial", "en": "Material / CreateMaterial"},
+        "desc": {
+            "zh": "拿材质对象的两个全局：签名、PNG 合成、同名不去重与 `!` 前缀等坑。",
+            "en": "The two globals that hand out material objects: signatures, PNG synthesis, "
+                  "and the no-dedup / `!`-prefix traps.",
+        },
+    },
+    {
+        "group": "api",
+        "src": {"zh": "imaterial.md", "en": "en/imaterial.md"},
+        "out": {"zh": "docs/imaterial.html", "en": "en/docs/imaterial.html"},
+        "text": {"zh": "IMaterial", "en": "IMaterial"},
+        "desc": {
+            "zh": "材质对象：怎么拿到、46 个原生方法、GMod 方法对照与缺口。",
+            "en": "The material object: how to obtain one, the 46 native methods, the GMod "
+                  "method mapping and the gaps.",
+        },
+    },
+    {
         "group": "guide",
         "src": {"zh": "gmod_compat_layer.md", "en": "en/gmod_compat_layer.md"},
         "out": {"zh": "docs/gmod_compat_layer.html", "en": "en/docs/gmod_compat_layer.html"},

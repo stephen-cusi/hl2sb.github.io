@@ -20,6 +20,9 @@ title: Wiki 目录
 | 文档 | 内容 |
 |---|---|
 | [file.Find](file_find.html) | 列出文件夹里的文件与目录。**已实现**（引擎侧 C++ 绑定），含 pathID 支持情况、`sorting` 取值、与 GMod 的逐条差异。 |
+| [CreateSound / CSoundPatch](csoundpatch.html) | 把声音绑到实体上的循环声对象：方法表（对照 GMod `CSoundPatch`）、生命周期、`FadeOut` 等差异。 |
+| [Material / CreateMaterial](material.html) | 拿材质对象的两个全局。含「`Material()` 找不到 `CreateMaterial()` 造的材质」「`!` 前缀不处理」等实测结论。 |
+| [IMaterial](imaterial.html) | 材质对象本身：5 个取得入口、46 个原生方法、GMod 方法对照与缺口（没有材质变量读写）。 |
 
 ## 开发与状态
 

@@ -163,7 +163,7 @@ But it is an **excellent checklist of "what GMod code actually needs"** — read
 | `vgui.Create` / `vgui.Register` / `vgui.GetControlTable` | **one version already exists** (`gmod_vgui.lua` + C++ `game/client/lua/scripted_controls/LPanel : public vgui::Panel`) | needs to be aligned with GMod's `scriptedpanels.lua` (`GetTable` vs `GetRefTable`, `CreateFromTable`, `vgui.Exists`…) |
 | `DisableClipping` (used by Derma) | see above | —— |
 | `ModelImage` / `SpawnIcon` model thumbnails | `game/client`'s `CModelPanel`/`CModelImage` (`vgui_controls`) | GMod renders it at runtime, HL2SB lacks the binding; the player model menu has already been through this |
-| `surface.GetTextureID` / `SetTexture` / `DrawRect` / `SetDrawColor` / `SetTextColor` / `SetTextPos` / `DrawText` / `Material(path)` / `DrawTexturedRectUV` | **already in** `lua/includes/extensions/gmod_surface.lua` (Lua layer) | long term it should be sunk into C++, but **it works** |
+| `surface.GetTextureID` / `SetTexture` / `DrawRect` / `SetDrawColor` / `SetTextColor` / `SetTextPos` / `DrawText` / `Material(path)` / `DrawTexturedRectUV` | **already in** `lua/includes/extensions/gmod_surface.lua` (Lua layer); `Material()` itself is now a **real C binding** (client `litexture.cpp:476`, server `limaterial.cpp:445`), and the Lua proxy is only installed when `Material == nil` | the rest can still be sunk into C++ long term, but **it works**. See [Material / CreateMaterial](material.html) |
 
 ### 3.2 Network {#32-网络}
 
@@ -361,8 +361,8 @@ This is the biggest block for "running GMod as-is", and also the place that best
       `derma.lua`'s `FindPanelsByClass()` needs it when reloading a control definition; addons also use it to find/close windows.
       ⚠️ After the double load was fixed it is no longer a fatal path (only a real reload goes through `ReloadClass`).
 - [ ] Lua: the one-argument form `surface.GetTextSize(text)` (put it in `lua/autorun/client/`)
-- [ ] Engine: sink `Material()` into a real C binding (after binding, move `lua/includes/` back
-      **before** extensions, matching GMod's order; see the TODO(port) at the two call sites)
+- [x] Engine: `Material()` is now a real C binding (client `litexture.cpp:476`, server `limaterial.cpp:445`;
+      the client Lua proxy is only installed when `Material == nil`). What is left is IMaterial's **material variable reads/writes**, see §9.7 and [IMaterial](imaterial.html)
 - [ ] Engine: make `CreateConVar` a real binding (the GMod contract `(name, default, flags, helptext, min, max)`).
       The current Lua shim is `ConVar(name, def, flags, help, min, max)`, while the engine's `ConVar` is
       `(name, default, flags, help, **bMin, fMin, bMax, fMax**) —— the `min`/`max` numbers land in the boolean slots.
@@ -745,7 +745,7 @@ Other cases of the same kind:
      `IMaterialSystem`**, and the client **already has a precedent** ——
      `CPlayerColorProxyFactory` in `game/client/c_viewmodel_attachment.cpp`
      is exactly the "wrap the old factory, keep the chain" style; just extend it, **no need to rebuild engine.dll**.
-   - `IMaterial:SetVector( name, vec )` (`public/lua/materialsystem/limaterial.cpp` currently only has `GetName`/`IsError`).
+   - `IMaterial:SetVector( name, vec )` (`public/lua/materialsystem/limaterial.cpp` already has 46 native methods; what is missing is the whole **material variable read/write** family: `SetVector`/`SetFloat`/`SetInt`/`SetString`/`SetMatrix`/`SetTexture` are all absent — see [IMaterial §7](imaterial.html#7-与-gmod-的差异-注意)).
    - `Player:GetWeaponColor()` / `SetWeaponColor()` (the engine has nothing at all; in GMod it is a **networked** variable).
 2. **NPC `m_iMaxHealth` and client `m_takedamage`** (this round only networked the player, commit `50d1f475`).
    To fully align with GMod, add it on `DT_BaseEntity` (GMod's client.dll has both strings),

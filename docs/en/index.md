@@ -21,6 +21,9 @@ runtime dependencies, readable offline too.
 | Document | Contents |
 |---|---|
 | [file.Find](file_find.html) | Listing the files and directories in a folder. **Implemented** (engine-side C++ binding), with pathID support, `sorting` values and the item-by-item differences from GMod. |
+| [CreateSound / CSoundPatch](csoundpatch.html) | The looping-sound object bound to an entity: method table (mapped to GMod's `CSoundPatch`), lifetime, and differences such as `FadeOut`. |
+| [Material / CreateMaterial](material.html) | The two globals that hand out material objects, including the verified traps: `Material()` cannot find a `CreateMaterial()` material, and the `!` prefix is not handled. |
+| [IMaterial](imaterial.html) | The material object itself: five entry points, the 46 native methods, the GMod method mapping and the gaps (no material variable access). |
 
 ## Development & status {#开发与状态}
 
