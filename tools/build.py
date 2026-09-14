@@ -653,8 +653,8 @@ def build_sidebar(current_out: str, depth: int) -> str:
         parts.append("</ul></div>")
     parts.append('<div class="side-group"><div class="side-group-title">项目</div><ul>')
     parts.append('<li><a href="%sindex.html">首页</a></li>' % root)
-    parts.append('<li><a href="%sdocs/build_and_run.html">构建与运行</a></li>' % root)
-    parts.append('<li><a href="%sdocs/about.html">关于 / 版权</a></li>' % root)
+    parts.append('<li><a href="%s" target="_blank" rel="noopener">GitHub 仓库 ↗</a></li>'
+                 % SITE["repo_site"])
     parts.append("</ul></div>")
     parts.append("</nav>")
     parts.append('<div class="side-foot small">%s</div>' % SEARCH_HINT)
