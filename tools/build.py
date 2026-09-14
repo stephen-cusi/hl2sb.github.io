@@ -88,6 +88,14 @@ PAGES = [
         "desc": "把 GMod 的 Lua 层搬进引擎的路线图、缺口映射与移植状态总表。",
     },
     {
+        "src": "file_find.md",
+        "out": "docs/file_find.html",
+        "nav": "wiki",
+        "group": "API 参考",
+        "text": "file.Find",
+        "desc": "列出文件夹里的文件与目录：签名、pathID 支持情况、与 GMod 的差异（已实现）。",
+    },
+    {
         "src": "gmod_compat_layer.md",
         "out": "docs/gmod_compat_layer.html",
         "nav": "guide",
@@ -114,7 +122,7 @@ PAGES = [
 ]
 
 # 分组顺序 / group order for the sidebar.
-GROUPS = ["Wiki", "使用文档", "关于"]
+GROUPS = ["Wiki", "API 参考", "使用文档", "关于"]
 
 # 旧锚点兼容（文档内部已存在的 #锚点 链接，按 GFM 风格的 id 生成，
 # 这里补一个 hidden alias，保证老链接不会失效）。

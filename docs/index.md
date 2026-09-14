@@ -15,6 +15,12 @@ title: Wiki 目录
 | [Derma 基础指南](derma_basic_guide.html) | 在 HL2SB 里写 GMod 风格的 UI。对照 GMod 官方 Derma Basic Guide，**只写不一样的地方和这个 fork 的坑**。 |
 | [GMod Lua 兼容层](gmod_compat_layer.html) | 兼容层由哪些部分组成（引擎绑定 + Lua 扩展 + GMod 原版文件）、加载顺序、已知缺口。 |
 
+## API 参考
+
+| 文档 | 内容 |
+|---|---|
+| [file.Find](file_find.html) | 列出文件夹里的文件与目录。**已实现**（引擎侧 C++ 绑定），含 pathID 支持情况、`sorting` 取值、与 GMod 的逐条差异。 |
+
 ## 开发与状态
 
 | 文档 | 内容 |

@@ -178,7 +178,7 @@ GMod 兼容层，规模不小：
 
 | GMod 需要 | 引擎落点 | 说明 |
 |---|---|---|
-| `file.Read/Write/Exists/Delete/Find/Time/Open/Size` | `public/lua/lfilesystem.cpp`（**已有** `IFileSystem` 绑定）+ `FileHandle` | 主要工作是把 GMod 的路径语义（`data/`、`MOD`/`GAME` 写权限）映射过来 |
+| `file.Read/Write/Exists/Delete/Find/Time/Open/Size` | `public/lua/lfilesystem.cpp`（**已实现**：`file.Find` 在 `:1169`，注册进 `file_funcs[]` 在 `:1414`，`luaopen_Files` 在 `:1419`；GMod 拼写别名 `file` 在 `lsrcinit.cpp:553`） | ✅ GMod 的路径语义已经映射完（`s_GModPathIDs` `:618`：`DATA` → `MOD` + `data/` 前缀、`LUA` → `GAME` + `lua/` 前缀、非法 pathID → `nil, nil`）。`file.Find` 的签名 / 默认 `nameasc` / 两个返回值与上游一致，差异（addon 标题 ID 不支持、`MOD` 含 addons、无 realm 区分）逐条记在 [file.Find](file_find.html) |
 | `http.Fetch/Post`、`HTTP()` | **`thirdparty/curl` 已在仓库里**；落 `game/client/lua/lhttp.cpp` + 主线程回调队列 | GMod 的 `http` 是异步 + `onSuccess/onFailure` |
 | `cookie.*` | 同上 / `steamapicontext` 的 ISteamUser + `filesystem` | — |
 | `util.TableToJSON` / `util.JSONToTable` | 引擎里已有 JSON（`tier1` 有 `CUtlBuffer`+JSON? 需查）或绑 `thirdparty` | — |
