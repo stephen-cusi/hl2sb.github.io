@@ -5,7 +5,8 @@
 GitHub Pages 的用户站会挂在 /<repo>/ 这样的子路径下，所以这里起一个
 「把 dist/ 当作 /hl2sb.github.io/ 子目录」的本地服务器，按真实 URL 抓页面，
 检查 HTTP 200、内容、侧栏/搜索面板结构、首页出去的相对链接，以及文档里的
-截图（`../assets/img/*.png` 必须在子路径下 200 且真的是 PNG）。
+截图（`../assets/img/*.png` 必须在子路径下 200、真的是 PNG、而且尺寸已经裁到
+示例窗口的尺度），还有构建期写入的 Lua 高亮标记（`<span class="tok-*">`）。
 
 用法:
     python tools/preview_check.py
@@ -57,14 +58,26 @@ CHECKS = [
      ["<table", "<pre><code", "DFrame:GetClientArea",
       "id=\"0-运行环境和-gmod-不一样的第一件事\"", "class=\"codeblock\"",
       "src=\"../assets/img/derma/test-panel-empty.png\"",
-      "src=\"../assets/img/derma/test-panel-example.png\""]),
+      "src=\"../assets/img/derma/test-panel-example.png\"",
+      # 构建期写入的 Lua 高亮：关键字 / 字符串 / 注释 / 方法名
+      "class=\"language-lua\"", "class=\"tok-keyword\"", "class=\"tok-string\"",
+      "class=\"tok-comment\"", "class=\"tok-method\"", "class=\"tok-number\"",
+      "class=\"tok-op\""]),
     ("/docs/gmod_lua_port_plan.html", "移植计划与状态", ["<table", "class=\"codeblock\""]),
     ("/docs/gmod_compat_layer.html", "兼容层", ["<table", "lua/includes/extensions"]),
     ("/docs/build_and_run.html", "构建与运行",
      ["waf.bat", "build\\game\\client\\client.dll", "class=\"toc\"", "lua/autorun"]),
     ("/docs/about.html", "关于 / 版权", ["Facepunch", "stephen-cusi/source-engine-mod"]),
-    ("/assets/style.css", "样式表", ["--accent", "#0082ff", "#383c3e", "#90beef"]),
-    ("/assets/app.js", "脚本", ["search-index.json", "hl2sb-theme"]),
+    ("/assets/style.css", "样式表",
+     ["--accent", "#0082ff", "#383c3e", "#90beef",
+      # Lua token 颜色（逐条对齐上游 GMod wiki 的 styles/gmod.css）
+      ".tok-keyword", "#03a9f4", ".tok-string", "#ecce39", ".tok-comment",
+      "#4caf50", ".tok-method", "#7cd7e0", ".tok-class", "#81d0da",
+      # 截图呈现 + 无依赖放大层
+      "max-width: min(100%, 640px)", ".lightbox", "zoom-in"]),
+    ("/assets/app.js", "脚本",
+     ["search-index.json", "hl2sb-theme", "openLightbox", "closeLightbox",
+      "innerText", "querySelectorAll(\".doc img, .prose img\")"]),
     ("/assets/search-index.json", "搜索索引", ["derma_basic_guide.html", "headings"]),
     ("/assets/favicon.svg", "图标", ["<svg"]),
     ("/404.html", "404 页面", ["404"]),
@@ -72,6 +85,7 @@ CHECKS = [
 
 STRUCT = ["id=\"searchOverlay\"", "class=\"side-nav\"", "theme-toggle",
           "assets/style.css", "assets/app.js", "id=\"sideSearch\""]
+
 
 failures: list[str] = []
 
@@ -87,6 +101,13 @@ def get_bytes(url: str) -> tuple[int, bytes]:
 
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def png_size(blob: bytes) -> tuple[int, int]:
+    """从 IHDR 读尺寸（不依赖任何第三方库）。"""
+    if len(blob) < 24 or blob[12:16] != b"IHDR":
+        return (0, 0)
+    return (int.from_bytes(blob[16:20], "big"), int.from_bytes(blob[20:24], "big"))
 
 
 def main() -> int:
@@ -147,8 +168,14 @@ def main() -> int:
                     failures.append("图片 %s -> HTTP %s / PNG=%s" % (src, status, blob[:8]))
                     print("  FAIL  图片 %-32s HTTP %s 不是 PNG" % (src, status))
                 else:
-                    print("  ok    %-34s HTTP %s  %7d B  %s"
-                          % (resolved, status, len(blob), alt[:26]))
+                    w, h = png_size(blob)
+                    print("  ok    %-34s HTTP %s  %7d B  %dx%d  %s"
+                          % (resolved, status, len(blob), w, h, alt[:24]))
+                    # 示例截图必须是「裁到窗口」的尺度，不是整屏实拍
+                    if w > 800 or h > 500:
+                        failures.append("图片 %s 尺寸 %dx%d 太大（应该裁到示例窗口）"
+                                        % (src, w, h))
+                        print("  FAIL  图片 %-32s %dx%d 太大" % (src, w, h))
 
             # 每个页面的公共结构（侧栏 / 搜索 / 主题切换 / 资源引用）
             for path in ("/", "/docs/build_and_run.html", "/docs/about.html"):

@@ -14,6 +14,9 @@
 * **截图约定** —— `docs/*.md` 里写 `![说明](../assets/img/...)`：这条相对路径
   相对生成的 `docs/*.html`（也相对 `docs/` 在 GitHub 上的位置，所以网页和
   GitHub 上都能直接显示），`assets/` 整棵树会被原样复制到 `dist/assets/`。
+* **语法高亮也是构建期的** —— ```lua 围栏在这里用一个小 Lua 词法分析器切成
+  `<span class="tok-*">`，颜色对齐上游 GMod wiki 的 `styles/gmod.css`。页面加载时
+  不跑任何高亮 JS、不拉任何外部脚本，`tools/verify.py` 的「0 external deps」保持成立。
 
 用法 / usage:
     python tools/build.py            # -> dist/
@@ -121,6 +124,203 @@ ANCHOR_ALIASES = {
             "9-移植状态与经验v3-增补2026-09-12-09-13",
     },
 }
+
+# --------------------------------------------------------------------------
+# Lua 语法高亮 / build-time Lua syntax highlighting
+# --------------------------------------------------------------------------
+# 高亮在构建期由 Python 完成，产物只是多了 <span class="tok-*">，
+# 所以页面运行时依旧零依赖（没有 CDN、没有高亮库、没有 fetch）。
+# 词法分类刻意做得小而保守：只认 Lua 的关键字/字符串/数字/注释/运算符，
+# 以及三类标识符（`.`/`:` 后面的方法名、大写开头的类名、库表名）。
+#
+# 颜色对齐上游 GMod wiki（https://wiki.facepunch.com/styles/gmod.css 的
+# `.markdown .code span.*`，代码块底色 #333、基础前景 #d0d0d0）：
+#   keyword #03a9f4 · string #ecce39 · comment #4caf50 · number #eee
+#   className #81d0da · method #7cd7e0 · methoddef #95e439
+#   operator/brackets #9c9c9c · builtinValue #7bd6ff
+
+LUA_LANGS = frozenset(["lua", "glua", "luau"])
+
+_LUA_KEYWORDS = frozenset("""
+and break do else elseif end for function goto if in local not or repeat return
+then until while continue
+""".split())
+
+# 不是关键字，但 GMod wiki 用 builtinValue 单独上色
+_LUA_BUILTIN_VALUES = frozenset(["true", "false", "nil"])
+
+# GMod / HL2SB 里常见的库表与全局函数名：按 className 上色
+_LUA_LIBRARIES = frozenset("""
+_G vgui draw surface derma hook file util table string math os io coroutine debug
+net render cam concommand cvars gameevent killicon language scripted_ents weapons
+team player ents engine chat effects constraint physenv sound list
+Color Vector Angle Matrix Material RenderTarget CreateMaterial CreateFont
+print PrintTable Msg Error NoError Warning ScrW ScrH IsValid CurTime FrameTime
+RealTime SysTime tostring tonumber type pairs ipairs next select assert unpack
+require setmetatable getmetatable rawget rawset pcall xpcall
+""".split())
+
+_LUA_ID_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_LUA_NUM_RE = re.compile(
+    r"0[xX][0-9a-fA-F]*(?:\.[0-9a-fA-F]*)?(?:[pP][-+]?[0-9]+)?"
+    r"|(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?")
+_LUA_LONG_OPEN_RE = re.compile(r"\[(=*)\[")
+_LUA_OP_RE = re.compile(
+    r"\.\.\.|\.\.|==|~=|<=|>=|!=|&&|\|\||::|[=+\-*/%^#<>(){}[\];:,.&|!~?]")
+_LUA_CONST_RE = re.compile(r"[A-Z][A-Z0-9_]*\Z")
+
+# 词法类别 -> CSS class（样式见 assets/style.css 的「Lua 高亮 / tokens」一节）
+LUA_TOKEN_CLASSES = {
+    "kw": "tok-keyword",
+    "str": "tok-string",
+    "num": "tok-number",
+    "com": "tok-comment",
+    "op": "tok-op",
+    "meth": "tok-method",
+    "cls": "tok-class",
+    "def": "tok-def",
+    "bi": "tok-builtin",
+}
+
+
+def _lua_tokens(src: str) -> list[tuple[str, str]]:
+    """把一段 Lua 切成 (类别, 文本) —— 只做词法，不做语法分析。"""
+    toks: list[tuple[str, str]] = []
+    i, n = 0, len(src)
+    prev = ""          # 上一个「有意义的」token 文本（空白不算）
+    while i < n:
+        ch = src[i]
+
+        if ch in " \t\r\n":
+            j = i
+            while j < n and src[j] in " \t\r\n":
+                j += 1
+            toks.append(("ws", src[i:j]))
+            i = j
+            continue
+
+        # 注释：--[[ 长注释 ]]、-- 行注释、GLua 的 // 与 /* */
+        if src.startswith("--", i):
+            m = _LUA_LONG_OPEN_RE.match(src, i + 2)
+            if m:
+                close = "]" + m.group(1) + "]"
+                end = src.find(close, m.end())
+                end = n if end < 0 else end + len(close)
+            else:
+                end = src.find("\n", i)
+                end = n if end < 0 else end
+            toks.append(("com", src[i:end]))
+            i = end
+            prev = "com"
+            continue
+        if src.startswith("/*", i):
+            end = src.find("*/", i + 2)
+            end = n if end < 0 else end + 2
+            toks.append(("com", src[i:end]))
+            i = end
+            prev = "com"
+            continue
+        if src.startswith("//", i):
+            end = src.find("\n", i)
+            end = n if end < 0 else end
+            toks.append(("com", src[i:end]))
+            i = end
+            prev = "com"
+            continue
+
+        # 长字符串 [[ ... ]] / [==[ ... ]==]
+        if ch == "[":
+            m = _LUA_LONG_OPEN_RE.match(src, i)
+            if m:
+                close = "]" + m.group(1) + "]"
+                end = src.find(close, m.end())
+                end = n if end < 0 else end + len(close)
+                toks.append(("str", src[i:end]))
+                i = end
+                prev = "str"
+                continue
+
+        # 短字符串 / 字符
+        if ch in "\"'":
+            j = i + 1
+            while j < n:
+                c = src[j]
+                if c == "\\":
+                    j += 2
+                    continue
+                j += 1
+                if c == ch or c == "\n":
+                    break
+            toks.append(("str", src[i:j]))
+            i = j
+            prev = "str"
+            continue
+
+        # 数字
+        if ch.isdigit() or (ch == "." and i + 1 < n and src[i + 1].isdigit()):
+            m = _LUA_NUM_RE.match(src, i)
+            if m:
+                toks.append(("num", m.group(0)))
+                i = m.end()
+                prev = "num"
+                continue
+
+        # 标识符
+        m = _LUA_ID_RE.match(src, i)
+        if m:
+            word = m.group(0)
+            if prev in (".", ":"):
+                kind = "meth"
+            elif word in _LUA_KEYWORDS:
+                kind = "kw"
+            elif word in _LUA_BUILTIN_VALUES:
+                kind = "bi"
+            elif prev == "function":
+                kind = "def"
+            elif (word in _LUA_LIBRARIES or word[:1].isupper()
+                  or _LUA_CONST_RE.match(word)):
+                kind = "cls"
+            else:
+                kind = "plain"
+            toks.append((kind, word))
+            i = m.end()
+            prev = word
+            continue
+
+        # 运算符 / 标点
+        m = _LUA_OP_RE.match(src, i)
+        if m:
+            op = m.group(0)
+            toks.append(("op", op))
+            i = m.end()
+            prev = op
+            continue
+
+        # 兜底：认不出来的字符原样保留
+        toks.append(("plain", ch))
+        i += 1
+        prev = "plain"
+    return toks
+
+
+def highlight_lua(src: str) -> str:
+    """Lua 源码 -> 带 <span class="tok-*"> 的 HTML（已转义）。"""
+    out: list[str] = []
+    for kind, text in _lua_tokens(src):
+        cls = LUA_TOKEN_CLASSES.get(kind)
+        if cls:
+            out.append('<span class="%s">%s</span>' % (cls, esc_code(text)))
+        else:
+            out.append(esc_code(text))
+    return "".join(out)
+
+
+def highlight_code(code: str, lang: str) -> str:
+    """按围栏语言高亮；目前只有 Lua 一族有高亮器，其它语言原样转义。"""
+    if (lang or "").strip().lower() in LUA_LANGS:
+        return highlight_lua(code)
+    return esc_code(code)
+
 
 # --------------------------------------------------------------------------
 # Markdown 渲染器 / tiny markdown renderer
@@ -354,10 +554,19 @@ class MarkdownRenderer:
         return '<h%d id="%s">%s<a class="anchor" href="#%s" aria-hidden="true">#</a></h%d>' % (
             level, hid, label, hid, level)
 
-    def _fence(self, m: re.Match) -> str:
-        marker = m.group(1)
-        lang = (m.group(2) or "").strip()
-        self._i += 1
+    @staticmethod
+    def _codeblock(lang: str, code: str) -> str:
+        """一个代码块（含语言标签与「复制」按钮）；Lua 一族在这里就被高亮。"""
+        label = ('<span class="code-lang">%s</span>' % esc_code(lang)) if lang else ""
+        return ('<div class="codeblock">'
+                '<div class="code-head">%s<button class="copy-btn" type="button" '
+                'data-copy="1">复制</button></div>'
+                '<pre><code%s>%s</code></pre></div>'
+                % (label, (' class="language-%s"' % esc_code(lang)) if lang else "",
+                   highlight_code(code, lang)))
+
+    def _read_fence_body(self, marker: str) -> str:
+        """从当前位置读到收尾围栏，返回代码正文（self._i 停在围栏之后）。"""
         buf: list[str] = []
         while self._i < len(self._lines):
             line = self._lines[self._i]
@@ -366,14 +575,13 @@ class MarkdownRenderer:
                 break
             buf.append(line)
             self._i += 1
-        code = "\n".join(buf)
-        label = ('<span class="code-lang">%s</span>' % esc_code(lang)) if lang else ""
-        return ('<div class="codeblock">'
-                '<div class="code-head">%s<button class="copy-btn" type="button" '
-                'data-copy="1">复制</button></div>'
-                '<pre><code%s>%s</code></pre></div>'
-                % (label, (' class="language-%s"' % esc_code(lang)) if lang else "",
-                   esc_code(code)))
+        return "\n".join(buf)
+
+    def _fence(self, m: re.Match) -> str:
+        marker = m.group(1)
+        lang = (m.group(2) or "").strip()
+        self._i += 1
+        return self._codeblock(lang, self._read_fence_body(marker))
 
     def _quote(self) -> str:
         buf: list[str] = []
@@ -462,12 +670,22 @@ class MarkdownRenderer:
         first = self._lines[self._i]
         ordered = bool(_OL_RE.match(first))
         tag = "ol" if ordered else "ul"
-        items: list[list[str]] = []
-        current: list[str] = []
+        # 每一项是 list[str | tuple[("code"), html]]：
+        # 缩进的 ``` 围栏属于它所在的那条列表项，要和正文区分开渲染成代码块
+        # （否则会被 inline() 当成一段行内 `code`，既不换行也不高亮）。
+        items: list[list] = []
+        current: list = []
         while self._i < len(self._lines):
             line = self._lines[self._i]
             if not line.strip():
                 break
+            fm = _FENCE_RE.match(line)
+            if fm and current:
+                self._i += 1
+                lang = (fm.group(2) or "").strip()
+                current.append(("code", self._codeblock(
+                    lang, self._read_fence_body(fm.group(1)))))
+                continue
             if len(line) > 0 and line[0] in " \t" and current:
                 current.append(line.strip())
                 self._i += 1
@@ -485,11 +703,27 @@ class MarkdownRenderer:
             tag, "".join(self._item_html(it) for it in items), tag)
 
     @staticmethod
-    def _item_html(parts: list[str]) -> str:
+    def _item_html(parts: list) -> str:
         # 整条列表项的多个物理行要放在一起走 inline()：
         # 跨行的 **粗体** / `代码` 只在这种情况下才能正确配对。
-        joined = esc("\n".join(parts)).replace("\n", _BR)
-        return "<li>%s</li>" % inline(joined).replace(_BR, "<br>\n")
+        out: list[str] = []
+        buf: list[str] = []
+
+        def flush() -> None:
+            if not buf:
+                return
+            joined = esc("\n".join(buf)).replace("\n", _BR)
+            out.append(inline(joined).replace(_BR, "<br>\n"))
+            buf.clear()
+
+        for part in parts:
+            if isinstance(part, str):
+                buf.append(part)
+            else:
+                flush()
+                out.append(part[1])
+        flush()
+        return "<li>%s</li>" % "".join(out)
 
 
 def render_markdown(text: str, doc_title: str = "") -> tuple[str, list[dict]]:

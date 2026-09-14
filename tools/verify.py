@@ -7,8 +7,11 @@
   2. 站内链接与静态资源都存在（相对路径，任意 base path 可用）；
   3. 没有任何外部依赖（<link>/<script>/<img>/@import/字体）；
   4. Markdown 渲染是否干净：表格、代码块、标题、标题 id、以及是否残留原始标记；
-  5. 截图（assets/img/*.png）：合法 PNG、有 alt 文本、相对引用能解析、指南里顺序正确；
-  6. 本地 HTTP：页面 + 截图全部 HTTP 200。
+  5. 截图（assets/img/*.png）：合法 PNG、尺寸已经裁到示例窗口的尺度、有 alt 文本、
+     相对引用能解析、指南里顺序正确；
+  6. Lua 语法高亮：```lua 围栏必须是构建期就写好的 <span class="tok-*">，
+     非 Lua 的围栏必须完全不高亮（负向对照）；
+  7. 本地 HTTP：页面 + 截图全部 HTTP 200。
 
 用法:
     python tools/verify.py            # 自动起 http.server，自检后关闭
@@ -194,7 +197,7 @@ def check_images() -> None:
         warn("dist/assets/img 不存在（Markdown 里还没有截图引用）")
         return
 
-    # dist/ 里所有 PNG（含魔数校验）
+    # dist/ 里所有 PNG（含魔数校验 + 从 IHDR 读尺寸，不依赖任何第三方库）
     pngs = []
     for base, _dirs, files in os.walk(img_root):
         for name in files:
@@ -204,9 +207,26 @@ def check_images() -> None:
             rel = os.path.relpath(p, DIST).replace("\\", "/")
             pngs.append(rel)
             with open(p, "rb") as fh:
-                magic = fh.read(8)
-            if magic != b"\x89PNG\r\n\x1a\n":
-                fail("%s 不是合法 PNG（魔数 %r）" % (rel, magic))
+                blob = fh.read(33)
+            if blob[:8] != b"\x89PNG\r\n\x1a\n":
+                fail("%s 不是合法 PNG（魔数 %r）" % (rel, blob[:8]))
+                continue
+            if blob[12:16] != b"IHDR":
+                fail("%s 的 PNG 没有 IHDR（前 33 字节异常）" % rel)
+                continue
+            w = int.from_bytes(blob[16:20], "big")
+            h = int.from_bytes(blob[20:24], "big")
+            size = os.path.getsize(p)
+            print("  ok    %s  %dx%d  %.1f KB" % (rel, w, h, size / 1024.0))
+            # 示例截图必须是「裁到窗口」的尺度：整屏 1920x1280 那种 2.7 MB 的原图
+            # 会喧宾夺主，这里直接把上限写死，避免以后再退回去。
+            if rel.startswith("assets/img/derma/"):
+                if w > 800 or h > 500:
+                    fail("%s 尺寸 %dx%d 太大 —— 应该裁到示例窗口（上限 800x500）"
+                         % (rel, w, h))
+                if size > 200 * 1024:
+                    fail("%s 有 %.1f KB —— 裁切后应该远小于 200 KB"
+                         % (rel, size / 1024.0))
     pngs.sort()
     if not pngs:
         warn("dist/assets/img 下没有 PNG")
@@ -250,6 +270,103 @@ def check_images() -> None:
                          for p in pngs) // 1024, len(seen)))
 
 
+# ---------------------------------------------------------------- Lua 高亮
+CODEBLOCK_RE = re.compile(r"(?s)<pre><code([^>]*)>(.*?)</code></pre>")
+TOKEN_RE = re.compile(r'<span class="(tok-[a-z]+)"')
+LUA_LANGS = ("language-lua", "language-glua", "language-luau")
+
+
+def check_highlighting() -> None:
+    """```lua 围栏必须在构建期就被切成 <span class="tok-*">（运行时零依赖），
+    同时用负向对照确认别的语言的围栏没有被误判成 Lua。"""
+    print("\n[5] Lua 语法高亮（构建期 / 负向对照）")
+
+    lua_blocks = 0
+    other_blocks = 0
+    used_classes: set[str] = set()
+    per_page: dict[str, int] = {}
+
+    for page in html_files():
+        with open(os.path.join(DIST, *page.split("/")), "r", encoding="utf-8") as fh:
+            text = fh.read()
+        for attrs, body in CODEBLOCK_RE.findall(text):
+            classes = set(TOKEN_RE.findall(body))
+            is_lua = any(lang in attrs for lang in LUA_LANGS)
+            if is_lua:
+                lua_blocks += 1
+                per_page[page] = per_page.get(page, 0) + 1
+                used_classes |= classes
+                if not classes:
+                    fail("%s: 有一个 Lua 代码块完全没有高亮标记（%r…）"
+                         % (page, body[:60]))
+                elif "tok-keyword" not in classes:
+                    warn("%s: Lua 代码块里没有 tok-keyword（可能整段都是注释）" % page)
+            else:
+                other_blocks += 1
+                # 负向对照：非 Lua 围栏（powershell / 无语言的控制台片段 / 目录树）
+                # 一个 tok-* 都不该有。
+                if classes:
+                    fail("%s: 非 Lua 的代码块被误高亮成 %s（%r…）"
+                         % (page, sorted(classes), body[:60]))
+
+    if lua_blocks == 0:
+        fail("整整 7 个页面里没有一个被高亮的 Lua 代码块")
+    else:
+        ok("%d 个 Lua 代码块全部带 <span class=\"tok-*\">（%s）"
+           % (lua_blocks, "、".join("%s×%d" % kv for kv in sorted(per_page.items()))))
+
+    # 调色板确实用上了：关键字 / 字符串 / 注释 / 数字 / 运算符 / 方法名 / 类名
+    expect = {"tok-keyword", "tok-string", "tok-comment", "tok-number",
+              "tok-op", "tok-method", "tok-class"}
+    missing = sorted(expect - used_classes)
+    if missing:
+        warn("高亮调色板里这些类别没出现：%s" % ", ".join(missing))
+    else:
+        ok("关键字 / 字符串 / 注释 / 数字 / 运算符 / 方法 / 类名 7 类标记都出现了")
+
+    # 指南是唯一有 lua 围栏的页面：6 段（含 §2 列表项里缩进的那一段）
+    guide_lua = per_page.get("docs/derma_basic_guide.html", 0)
+    if guide_lua < 6:
+        fail("docs/derma_basic_guide.html 只有 %d 个高亮的 Lua 代码块，应该有 6 个"
+             % guide_lua)
+    else:
+        ok("指南里的 6 段 ```lua（含 §2 列表项里那段）全部高亮")
+
+    if other_blocks == 0:
+        warn("没有任何非 Lua 代码块，负向对照没有实际生效")
+
+    # 样式与脚本：颜色对齐 GMod wiki，放大层是本站自己实现的
+    css_path = os.path.join(DIST, "assets", "style.css")
+    js_path = os.path.join(DIST, "assets", "app.js")
+    with open(css_path, "r", encoding="utf-8") as fh:
+        css = fh.read()
+    with open(js_path, "r", encoding="utf-8") as fh:
+        js = fh.read()
+    for needle in ("tok-keyword", "#03a9f4", "#ecce39", "#4caf50", "#81d0da",
+                   "#7cd7e0", "#7bd6ff", "#9c9c9c", ".lightbox"):
+        if needle not in css:
+            fail("assets/style.css 缺少 %r" % needle)
+    for needle in ("lightbox", "openLightbox", "closeLightbox", 'querySelector("pre code")',
+                   "innerText"):
+        if needle not in js:
+            fail("assets/app.js 缺少 %r" % needle)
+    # 复制按钮必须从 DOM 取纯文本（innerText），否则会把 tok-* 的 <span> 一起复制走
+    if "innerText" in js and ".innerHTML" not in js.split("代码块复制")[-1][:600]:
+        ok("「复制」按钮取的是纯文本（innerText），高亮标记不会被复制")
+    if "lightbox" in js and ".lightbox" in css:
+        ok("点击放大由 assets/app.js + style.css 自带（无第三方库）")
+
+    # 关键页面必须有的结构（和 [2] 里的 expect 互补：这里只管高亮）
+    with open(os.path.join(DIST, "docs", "derma_basic_guide.html"),
+              "r", encoding="utf-8") as fh:
+        guide = fh.read()
+    if 'class="language-lua"' not in guide:
+        fail("docs/derma_basic_guide.html 里没有 language-lua 代码块")
+    if "<copy" in guide or "prism" in guide.lower() or "highlight.js" in guide.lower():
+        fail("页面里出现了外部高亮方案（应该完全用构建期生成）")
+    ok("没有引入任何运行时高亮库 / 外部脚本")
+
+
 # ---------------------------------------------------------------- HTTP 检查
 class _Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *_a):  # noqa: D102
@@ -257,7 +374,7 @@ class _Quiet(http.server.SimpleHTTPRequestHandler):
 
 
 def check_http() -> None:
-    print("\n[5] 本地 HTTP 服务（相对路径 / 任意 base path）")
+    print("\n[6] 本地 HTTP 服务（相对路径 / 任意 base path）")
     handler = functools.partial(_Quiet, directory=DIST)
     with socketserver.TCPServer(("127.0.0.1", 0), handler) as httpd:
         port = httpd.server_address[1]
@@ -302,6 +419,7 @@ def main() -> int:
     check_rendering()
     check_self_contained()
     check_images()
+    check_highlighting()
     if not args.no_http:
         check_http()
 

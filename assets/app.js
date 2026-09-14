@@ -1,5 +1,6 @@
 /* HL2SB 文档站前端脚本 —— 无依赖，所有路径都是相对的（任意 base path 可用）。
-   功能：主题切换（默认深色）、移动端侧栏抽屉、Ctrl+K / 斜杠 搜索、锚点、代码复制。 */
+   功能：主题切换（默认深色）、移动端侧栏抽屉、Ctrl+K / 斜杠 搜索、锚点、代码复制、
+   截图点击放大（自己实现的极简 lightbox，不引入任何外部库）。 */
 (function () {
   "use strict";
 
@@ -50,8 +51,83 @@
   doc.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape") {
       doc.body.classList.remove("nav-open");
+      closeLightbox();
     }
   });
+
+  /* ---------------- 截图点击放大 / lightbox ----------------
+     上游 GMod wiki 的示例图不可点击；这里按常见文档站的做法补一个极简放大层：
+     纯 DOM + CSS，没有任何依赖，图片本身仍是同一个相对路径的 PNG。 */
+  var lb = null;
+
+  function ensureLightbox() {
+    if (lb) return lb;
+    lb = doc.createElement("div");
+    lb.className = "lightbox";
+    lb.hidden = true;
+    lb.setAttribute("role", "dialog");
+    lb.setAttribute("aria-modal", "true");
+    lb.setAttribute("aria-label", "放大的截图（点击或按 Esc 关闭）");
+    var big = doc.createElement("img");
+    big.alt = "";
+    var cap = doc.createElement("div");
+    cap.className = "lb-caption";
+    lb.appendChild(big);
+    lb.appendChild(cap);
+    lb.addEventListener("click", function () { closeLightbox(); });
+    doc.body.appendChild(lb);
+    return lb;
+  }
+
+  function openLightbox(img) {
+    var box = ensureLightbox();
+    var big = box.querySelector("img");
+    var cap = box.querySelector(".lb-caption");
+    var alt = img.getAttribute("alt") || "";
+    big.src = img.getAttribute("src");
+    big.alt = alt;
+    // 示例截图是按游戏像素 1:1 裁出来的（比如 386x256），直接 1:1 放到大屏上
+    // 并不算「放大」；这里按视口算一个不超过 2 倍的缩放，保证看得清又不糊成一团。
+    var nw = img.naturalWidth || 0;
+    var nh = img.naturalHeight || 0;
+    if (nw && nh) {
+      var scale = Math.min(
+        (window.innerWidth * 0.96) / nw,
+        (window.innerHeight - 76) / nh,
+        2);
+      big.style.width = Math.round(nw * scale) + "px";
+      big.style.height = Math.round(nh * scale) + "px";
+    } else {
+      big.style.width = "";
+      big.style.height = "";
+    }
+    cap.textContent = alt;
+    box.hidden = false;
+    doc.body.style.overflow = "hidden";
+  }
+
+  function closeLightbox() {
+    if (!lb || lb.hidden) return;
+    lb.hidden = true;
+    lb.querySelector("img").removeAttribute("src");
+    doc.body.style.overflow = "";
+  }
+
+  (function initLightbox() {
+    var imgs = doc.querySelectorAll(".doc img, .prose img");
+    Array.prototype.forEach.call(imgs, function (img) {
+      img.setAttribute("tabindex", "0");
+      img.setAttribute("role", "button");
+      img.setAttribute("aria-label", "放大截图：" + (img.getAttribute("alt") || ""));
+      img.addEventListener("click", function () { openLightbox(img); });
+      img.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" || ev.key === " " || ev.key === "Spacebar") {
+          ev.preventDefault();
+          openLightbox(img);
+        }
+      });
+    });
+  })();
 
   /* ---------------- 代码块复制 ---------------- */
   doc.addEventListener("click", function (ev) {

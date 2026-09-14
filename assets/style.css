@@ -321,23 +321,66 @@ button { font-family: inherit; }
 .doc blockquote ul, .prose blockquote ul { margin: 6px 0; padding-left: 20px; }
 
 /* ---------- 截图 / screenshots ----------
-   约定：文档里的图片是 `![说明](../assets/img/...)`（相对生成的 HTML 页面，
-   同时也相对 docs/*.md 在 GitHub 上的位置），这里统一做成自适应列宽。 */
+   上游 GMod wiki 的约定（https://wiki.facepunch.com/styles/gmod.css）只有两条：
+       .markdown img        { max-width: 100% }
+       .markdown img.image  { margin: 16px auto; display: block }
+   也就是「居中成块、永不超出内容列」—— 它没有边框、没有图注、也不可点击放大。
+   这里沿用这套骨架（居中成块 + 不超出列宽），再补上与本站表格/卡片一致的细边框
+   和圆角、一个更收敛的示例图宽度上限、图注样式，以及无依赖的点击放大
+   （HTML 里只多一个 tabindex，逻辑在 assets/app.js）。
+   文档里的图片约定仍是 `![说明](../assets/img/...)`（相对生成的 HTML 页面）。 */
 .doc img, .prose img {
   display: block;
-  max-width: 100%;
+  max-width: min(100%, 640px);
   height: auto;
-  margin: 16px auto 8px;
+  margin: 16px auto 6px;
   border: 1px solid var(--rule);
   border-radius: var(--radius);
+  background: var(--panel);
+  cursor: zoom-in;
+}
+.doc img:hover, .prose img:hover { border-color: var(--th-border); }
+.doc img:focus-visible, .prose img:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 /* 图注：图片下面单独成段的 `*斜体*` 一行 */
 .doc p > em:only-child, .prose p > em:only-child {
   display: block;
-  margin: 0 0 18px;
+  max-width: min(100%, 640px);
+  margin: 0 auto 18px;
   text-align: center;
   color: var(--muted);
   font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* ---------- 点击放大 / dependency-free lightbox ---------- */
+.lightbox {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  cursor: zoom-out;
+}
+.lightbox[hidden] { display: none; }
+.lightbox img {
+  /* 尺寸由 assets/app.js 按视口算（不超过原图的 2 倍）；这里的上下限只是兜底 */
+  max-width: 96vw;
+  max-height: calc(100vh - 76px);
+  width: auto; height: auto;
+  image-rendering: auto;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius);
+  background: var(--page);
+  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.5);
+}
+.lightbox .lb-caption {
+  position: absolute; left: 18px; right: 18px; bottom: 14px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12.5px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 /* ---------- 表格 / tables ---------- */
@@ -410,6 +453,21 @@ button { font-family: inherit; }
   background: none; color: inherit; padding: 0; font-size: inherit;
   white-space: pre;
 }
+
+/* ---------- Lua 高亮 / Lua tokens ----------
+   颜色逐条对齐上游 GMod wiki 的 styles/gmod.css（.markdown .code span.*：
+   keyword/string/comment/number/className/method/methoddef/operator/builtinValue）。
+   高亮不是运行时的：tools/build.py 在构建期就把 ```lua 围栏写成这些 <span>，
+   所以页面加载时不跑高亮脚本、不请求任何外部资源。 */
+.codeblock .tok-keyword { color: #03a9f4; }
+.codeblock .tok-string  { color: #ecce39; }
+.codeblock .tok-comment { color: #4caf50; }
+.codeblock .tok-number  { color: #eeeeee; }
+.codeblock .tok-class   { color: #81d0da; }
+.codeblock .tok-method  { color: #7cd7e0; }
+.codeblock .tok-def     { color: #95e439; }
+.codeblock .tok-op      { color: #9c9c9c; }
+.codeblock .tok-builtin { color: #7bd6ff; }
 
 /* ---------- 本页目录 / table of contents ---------- */
 .toc {
@@ -578,7 +636,8 @@ button { font-family: inherit; }
 
 /* 打印时去掉侧栏和顶栏 */
 @media print {
-  .topbar, .sidebar, .search-overlay, .crumbs, .page-foot { display: none !important; }
+  .topbar, .sidebar, .search-overlay, .crumbs, .page-foot,
+  .lightbox { display: none !important; }
   .content { min-height: 0; }
   .layout { margin: 0; display: block; }
   body { background: #fff; }
