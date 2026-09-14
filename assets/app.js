@@ -173,12 +173,33 @@
   var hits = [];
   var sel = 0;
 
+  /* 站点根前缀。模板里这个脚本是用 `$$ROOT$$assets/app.js` 加载的（根目录页面是
+     `assets/app.js`，`docs/` 下的页面是 `../assets/app.js`），所以从自己这个 <script>
+     的 src 就能算出「相对于当前页面的站点根」，再拼索引路径与结果链接。
+
+     ⚠️ 不要改回按页面相对的写死路径：`docs/*.html` 里的 `assets/search-index.json`
+     会解析成 `docs/assets/search-index.json`（构建产物里没有这个目录 → 404），
+     索引加载失败后 index 变成空数组，搜索在任何文档页上都只会显示「没有匹配的页面」；
+     同理结果链接 `e.url` 是 `docs/xxx.html`，不拼前缀会变成 `docs/docs/xxx.html`。 */
+  var SITE_ROOT = (function () {
+    var el = doc.currentScript;
+    if (!el) {
+      var list = doc.getElementsByTagName("script");
+      for (var i = 0; i < list.length; i++) {
+        var s = list[i].getAttribute("src") || "";
+        if (/(^|\/)assets\/app\.js(\?|$)/.test(s)) { el = list[i]; break; }
+      }
+    }
+    var src = (el && el.getAttribute("src")) || "assets/app.js";
+    return src.replace(/assets\/app\.js(\?.*)?$/, "");
+  })();
+
   function loadIndex(cb) {
     if (index) { cb(); return; }
     if (loading) return;
     loading = true;
     var req = new XMLHttpRequest();
-    req.open("GET", "assets/search-index.json", true);
+    req.open("GET", SITE_ROOT + "assets/search-index.json", true);
     req.onload = function () {
       loading = false;
       try { index = JSON.parse(req.responseText); } catch (e) { index = []; }
@@ -284,7 +305,7 @@
         })[0];
         if (hitHead) extra = " › " + hitHead;
       }
-      html += '<a class="hit' + (i === 0 ? " sel" : "") + '" href="' + esc(e.url) + '">' +
+      html += '<a class="hit' + (i === 0 ? " sel" : "") + '" href="' + esc(SITE_ROOT + e.url) + '">' +
               '<span class="hit-t">' + esc(e.title) + extra + "</span>" +
               '<span class="hit-g">' + esc(e.group || "") + "</span>" +
               '<span class="hit-s">' + mark(snippet(e.text || "", terms, q), terms) + "</span></a>";

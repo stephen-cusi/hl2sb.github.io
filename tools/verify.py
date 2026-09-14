@@ -11,7 +11,9 @@
      相对引用能解析、指南里顺序正确；
   6. Lua 语法高亮：```lua 围栏必须是构建期就写好的 <span class="tok-*">，
      非 Lua 的围栏必须完全不高亮（负向对照）；
-  7. 本地 HTTP：页面 + 截图全部 HTTP 200。
+  7. 站内搜索：索引 URL 与搜索结果链接必须相对**每个页面自己的根**解析，且索引里的
+     正文不许被静默截断（这两条正是「搜索什么都搜不到」的两个根因）；
+  8. 本地 HTTP：页面 + 截图全部 HTTP 200。
 
 用法:
     python tools/verify.py            # 自动起 http.server，自检后关闭
@@ -24,6 +26,7 @@ import argparse
 import functools
 import html as _html
 import http.server
+import json
 import os
 import re
 import socketserver
@@ -367,6 +370,83 @@ def check_highlighting() -> None:
     ok("没有引入任何运行时高亮库 / 外部脚本")
 
 
+# ---------------------------------------------------------------- 站内搜索
+def check_search() -> None:
+    """搜索能不能用：索引路径与结果链接必须相对**页面自己的根**，正文也不许被静默截断。
+
+    这两条正是一直以来「搜索什么都搜不到」的两个根因：
+
+    * `assets/app.js` 以前写的是 `req.open("GET", "assets/search-index.json")` —— 页面相对。
+      于是 `docs/*.html` 请求的是 `docs/assets/search-index.json`（构建产物里没有这个目录，
+      404），`JSON.parse` 失败后 index 变成空数组，任何文档页都只回「没有匹配的页面」。
+    * `tools/build.py` 以前把每页正文砍到 6000 字符，36 KB 的移植计划页后 83% 搜不到。
+
+    这里照着 app.js 的算法（从自己那个 <script src> 反推站点根）逐页解析，把两种都挡住。
+    """
+    print("\n[7] 站内搜索（索引可达性 / 结果链接 / 召回）")
+    idx_path = os.path.join(DIST, "assets", "search-index.json")
+    js_path = os.path.join(DIST, "assets", "app.js")
+    if not os.path.isfile(idx_path):
+        fail("缺少 assets/search-index.json —— 先跑 python tools/build.py")
+        return
+    try:
+        with open(idx_path, "r", encoding="utf-8") as fh:
+            index = json.load(fh)
+    except Exception as exc:  # noqa: BLE001
+        fail("assets/search-index.json 不是合法 JSON：%s" % exc)
+        return
+    if not index:
+        fail("assets/search-index.json 是空数组 —— 搜索永远没有结果")
+        return
+
+    with open(js_path, "r", encoding="utf-8") as fh:
+        js = fh.read()
+    if "SITE_ROOT" not in js:
+        fail("assets/app.js 没有从自己的 <script src> 反推站点根（SITE_ROOT）")
+    if 'req.open("GET", "assets/search-index.json"' in js:
+        fail('assets/app.js 里的索引路径仍是页面相对的 "assets/search-index.json"'
+             "（docs/ 页面会 404）")
+
+    # 正文长度：踩到 build.py 的上限就是又被静默截断了（单一事实来源在那个常量上）
+    limit = None
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import build  # noqa: E402
+        limit = build.SEARCH_TEXT_LIMIT
+    except Exception:  # noqa: BLE001
+        warn("读不到 tools/build.py 的 SEARCH_TEXT_LIMIT，跳过截断检查")
+    if limit:
+        at_limit = [e.get("url", "?") for e in index if len(e.get("text") or "") >= limit]
+        if at_limit:
+            fail("这些页面的正文顶到了搜索上限 %d，尾部搜不到：%s"
+                 % (limit, ", ".join(at_limit)))
+
+    verified = 0
+    for page in html_files():
+        path = os.path.join(DIST, *page.split("/"))
+        with open(path, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        m = re.search(r'<script src="([^"]*assets/app\.js)"', text)
+        root = m.group(1)[: m.group(1).index("assets/app.js")] if m else ""
+        base = os.path.dirname(path)
+
+        resolved = os.path.normpath(os.path.join(base, root + "assets/search-index.json"))
+        if not os.path.isfile(resolved):
+            fail("%s 取不到搜索索引（app.js 会请求 %s）"
+                 % (page, os.path.relpath(resolved, DIST)))
+            continue
+
+        broken = [e.get("url", "?") for e in index
+                  if not os.path.isfile(os.path.normpath(os.path.join(base, root + e["url"])))]
+        if broken:
+            fail("%s 上有 %d 条搜索结果打不开（例：%s）" % (page, len(broken), broken[0]))
+            continue
+        verified += 1
+
+    ok("索引可解析（%d 条），%d 个页面都能取到索引、%d 条结果链接全部可解析"
+       % (len(index), verified, len(index) * verified))
+
+
 # ---------------------------------------------------------------- HTTP 检查
 class _Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *_a):  # noqa: D102
@@ -422,6 +502,7 @@ def main() -> int:
     check_highlighting()
     if not args.no_http:
         check_http()
+    check_search()
 
     print("\n结果: %d 项通过, %d 个警告, %d 个失败" % (OK, len(WARN), len(FAIL)))
     for w in WARN:

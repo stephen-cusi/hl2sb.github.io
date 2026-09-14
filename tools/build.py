@@ -56,6 +56,12 @@ SITE = {
 # 页面底部会写上生成日期（「最后更新」的近似值，CI 每次推送都会重建）。
 BUILD_DATE = date.today().isoformat()
 
+# 搜索索引里每页保留的正文长度上限。
+# ⚠️ 这里以前写死 6000：36 KB 的「移植计划与状态」页只索引了前 6000 个字符，
+# 页面后 83% 的正文**在搜索里根本不存在**（索引文件本身没问题，是内容被截断了）。
+# 现在放宽到能装下最长的页面；真的超了会打印警告，不再悄悄丢内容。
+SEARCH_TEXT_LIMIT = 40000
+
 # 页面清单 / page manifest。
 #   src  : docs/ 下的 markdown 源文件（单一事实来源）
 #   out  : 生成到 dist/ 的目标路径
@@ -1071,12 +1077,16 @@ def build(out_dir: str) -> int:
 
         plain = re.sub(r"<[^>]+>", " ", html)
         plain = unescape(re.sub(r"\s+", " ", plain))
+        if len(plain) > SEARCH_TEXT_LIMIT:
+            # 截断只影响「正文命中」，标题与 headings 仍然全部可搜。
+            print("  ! %s 正文 %d 字符 > 搜索上限 %d，尾部不会被搜到"
+                  % (page["out"], len(plain), SEARCH_TEXT_LIMIT))
         search_index.append({
             "url": page["out"],
             "title": title,
             "group": page["group"],
             "headings": [t["text"] for t in toc],
-            "text": plain[:6000],
+            "text": plain[:SEARCH_TEXT_LIMIT],
         })
 
     # 首页

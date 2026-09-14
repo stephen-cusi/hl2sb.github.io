@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import functools
 import http.server
+import json
 import os
 import re
 import socketserver
@@ -114,6 +115,51 @@ def png_size(blob: bytes) -> tuple[int, int]:
     return (int.from_bytes(blob[16:20], "big"), int.from_bytes(blob[20:24], "big"))
 
 
+# ---------------------------------------------------------------- 站内搜索
+# app.js 从自己 <script src="$$ROOT$$assets/app.js"> 反推站点根（SITE_ROOT），
+# 索引与搜索结果链接都拼它。这里用同一套算法把「浏览器实际会请求的 URL」算出来，
+# 在子路径部署下逐条抓一遍 —— 这正是以前坏掉的地方（docs/ 页面去请求
+# docs/assets/search-index.json，404 之后 index 变空，搜索什么都搜不到）。
+APP_JS_RE = r'<script src="([^"]*assets/app\.js)"'
+
+
+def page_root(html: str) -> str:
+    """页面自己的站点根前缀（"" 或 "../"），与 app.js 的 SITE_ROOT 一致。"""
+    m = re.search(APP_JS_RE, html)
+    if not m:
+        return ""
+    return m.group(1)[: m.group(1).index("assets/app.js")]
+
+
+def js_score(entry: dict, terms: list[str], q: str) -> int:
+    """app.js 里 score() 的等价实现（用来验证「确实搜得到东西」）。"""
+    s = 0
+    title = (entry.get("title") or "").lower()
+    heads = " ".join(entry.get("headings") or []).lower()
+    text = (entry.get("text") or "").lower()
+    if q in title:
+        s += 100
+    for t in terms:
+        if t in title:
+            s += 40
+        if t in heads:
+            s += 12
+        s += min(text.count(t), 12) * 2
+    return s
+
+
+def js_search(index: list[dict], query: str) -> list[str]:
+    q = query.strip().lower()
+    terms = [t for t in q.split() if t]
+    found = []
+    for entry in index:
+        sc = js_score(entry, terms, q)
+        if sc > 0:
+            found.append((sc, entry))
+    found.sort(key=lambda kv: -kv[0])
+    return [e.get("url", "") for _s, e in found]
+
+
 def main() -> int:
     if not os.path.isdir(DIST):
         print("dist/ 不存在，先运行 python tools/build.py")
@@ -189,6 +235,72 @@ def main() -> int:
                         failures.append("%s 缺少 %r" % (path, needle))
                         print("  FAIL  %-34s 缺少 %s" % (path, needle))
             print("  ok    %-34s 侧栏 / 搜索面板 / 主题切换 / 资源引用齐全" % "(公共结构)")
+
+            # 站内搜索：用 app.js 的同一套算法（页面自己的根 + SITE_ROOT）算出浏览器
+            # 真正会请求的 URL，逐页抓索引、逐条抓结果链接，再跑一遍 score() 的等价
+            # 实现确认「确实搜得到东西」。以前索引是页面相对的，docs/ 页面拿到 404，
+            # 于是搜索永远回「没有匹配的页面」。
+            _status, root_page = get(root + PREFIX + "/index.html")
+            _status, doc_page = get(root + PREFIX + "/docs/file_find.html")
+            index = None
+            for label, page_html, page_dir in (("/index.html", root_page, "/"),
+                                               ("/docs/file_find.html", doc_page, "/docs/")):
+                r = page_root(page_html)
+                idx_url = os.path.normpath(
+                    PREFIX + page_dir + r + "assets/search-index.json").replace("\\", "/")
+                try:
+                    status, body = get(root + idx_url)
+                    parsed = json.loads(body)
+                except Exception as exc:  # noqa: BLE001
+                    failures.append("%s 加载索引失败（%s -> %s）" % (label, idx_url, exc))
+                    print("  FAIL  %-34s 索引 %s -> %s" % (label, idx_url, exc))
+                    continue
+                if status != 200 or not parsed:
+                    failures.append("%s 的索引 %s -> HTTP %s / %d 条"
+                                    % (label, idx_url, status, len(parsed or [])))
+                    print("  FAIL  %-34s 索引 %s HTTP %s" % (label, idx_url, status))
+                    continue
+                index = index or parsed
+                print("  ok    %-34s 索引 HTTP 200  %d 条  %s"
+                      % (label, len(parsed), idx_url))
+
+                broken = []
+                for entry in parsed:
+                    target = os.path.normpath(
+                        PREFIX + page_dir + r + entry.get("url", "")).replace("\\", "/")
+                    try:
+                        st, _b = get(root + target)
+                    except Exception:  # noqa: BLE001
+                        st = 0
+                    if st != 200:
+                        broken.append("%s -> %s" % (entry.get("url"), st))
+                if broken:
+                    failures.append("%s 上 %d 条搜索结果打不开（例：%s）"
+                                    % (label, len(broken), broken[0]))
+                    print("  FAIL  %-34s %d 条结果链接打不开（例：%s）"
+                          % (label, len(broken), broken[0]))
+                else:
+                    print("  ok    %-34s %d 条搜索结果链接全部 HTTP 200"
+                          % (label, len(parsed)))
+
+            if index:
+                # 召回：file.Find 是本页；hook.call 只出现在移植计划页 12808 字符处 ——
+                # 正文上限还是 6000 的时候这条必挂，等于回归锁。
+                for query, want in (("file.Find", "docs/file_find.html"),
+                                    ("hook.call", "docs/gmod_lua_port_plan.html")):
+                    hits = js_search(index, query)
+                    if want in hits:
+                        print("  ok    %-34s 搜索 %-14s 命中 %d 条，含 %s"
+                              % ("(搜索召回)", repr(query), len(hits), want))
+                    else:
+                        failures.append("搜索 %r 找不到 %s（命中 %s）" % (query, want, hits[:3]))
+                        print("  FAIL  %-34s 搜索 %r 找不到 %s（命中 %s）"
+                              % ("(搜索召回)", query, want, hits[:3]))
+                if js_search(index, "zzz-no-such-term-zzz"):
+                    failures.append("搜索负向对照失败：乱词也命中了页面")
+                    print("  FAIL  %-34s 乱词居然也命中" % "(搜索召回)")
+                else:
+                    print("  ok    %-34s 负向对照：乱词 0 命中" % "(搜索召回)")
 
             # 首页出去的每一条站内链接都要能打开
             _status, home = get(root + PREFIX + "/")
